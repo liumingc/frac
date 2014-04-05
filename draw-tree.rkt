@@ -11,6 +11,19 @@
           (sum (apply + lst)))
       (/ sum n))))
 
+(define to-string
+  (λ (x)
+    (cond
+      ((symbol? x) (symbol->string x))
+      ((number? x) (number->string x))
+      (else "?"))))
+
+(define draw-text
+  (λ (dc str x y)
+    (let-values (((wid ht desc spc)
+                  (send dc get-text-extent str)))
+      (send dc draw-text str (- x (/ wid 2)) y))))
+
 (define locate
   (λ (tree)
     (let ((x 0))
@@ -21,17 +34,16 @@
            (let* ((x1 (+ x x-inc))
                   (child
                    (map (λ (e)
-                          (set! x (+ x x-inc))
                           (f e (+ y y-inc)))
                         (cdr tree)))
                   (parent
-                   (node (symbol->string (car tree))
+                   (node (to-string (car tree))
                          (average x1 x)
                          y)))
              (cons parent child)))
-           (else
-            (set! x (+ x x-inc))
-            (node (symbol->string tree) x y)))))))
+          (else
+           (set! x (+ x x-inc))
+           (node (to-string tree) x y)))))))
 
 (define get-field
   (λ (e fn)
@@ -56,7 +68,7 @@
               (rst (cdr tree))
               (px (node-x fst))
               (py (node-y fst)))
-         (send dc draw-text (node-str fst) px py)
+         (draw-text dc (node-str fst) px py)
          (for-each
           (λ (e)
             (draw-tree dc e)
@@ -64,22 +76,26 @@
                   px (+ py 15) (get-x e) (get-y e)))
           rst)))
       (else
-       (send dc draw-text
-             (node-str tree)
-             (node-x tree)
-             (node-y tree))))))
+       (draw-text
+        dc
+        (node-str tree)
+        (node-x tree)
+        (node-y tree))))))
 
 (define frame (new frame%
                    [label "draw-tree"]
                    [width 640]
                    [height 480]))
 
+(define gdc 'undefined)
+
 (define canvas (new canvas%
                     [parent frame]
                     [paint-callback
                      (λ (c dc)
+                       (set! gdc dc)
                        (draw-tree dc
                                   (locate test-tree)))]))
 
-(define test-tree '(+ a b (* a3 a4) a5 (+ a6 a7)))
+(define test-tree '(+ a b (* (frac 3 4) a4) a5 (+ a6 a7)))
 (send frame show #t)
