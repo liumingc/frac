@@ -87,13 +87,10 @@
                    [width 640]
                    [height 480]))
 
-(define gdc 'undefined)
-
 (define canvas (new canvas%
                     [parent frame]
                     [paint-callback
                      (λ (c dc)
-                       (set! gdc dc)
                        (draw-tree dc
                                   (locate test-tree)))]))
 
