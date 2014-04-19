@@ -1,3 +1,3 @@
 small code pieces
 
-for <file>.rkt, you need to install racket(racket-lang.org)
+To run &lt;file&gt;.rkt, you need to install [racket](www.racket-lang.org)
