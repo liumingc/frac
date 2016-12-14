@@ -272,7 +272,7 @@ void rbt_delete_fixup(RBT *tree, Node *x)
 					w->color = x->parent->color;
 					x->parent->color = BLACK;
 					w->left->color = BLACK;
-					rbt_left_rotate(tree, x->parent);
+					rbt_right_rotate(tree, x->parent);
 					x = tree->root;
 				}
 			}
@@ -335,6 +335,8 @@ void rbt_del(RBT *tree, int key)
 		rbt_delete_fixup(tree, y);
 
 	rbt_transplant_nil(tree, y);
+
+	free(z);
 }
 
 void show(Node *x, int indent)
