@@ -21,9 +21,6 @@ class Vet(object):
         return self.value == other.value
 
 def tarjan(vs):
-    global index
-    global stack
-    
     for v in vs:
         if v.index == False:
             strong_connect(v)
