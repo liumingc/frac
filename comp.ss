@@ -1,5 +1,7 @@
 (import (nanopass))
 
+(define debug-pass #f)
+
 (define-language L1
   (terminals
     (symbol (x))
@@ -106,6 +108,11 @@
              ,(map (lambda (x)
                      (Expr x r)) body*)
              ,(Expr body r))))]
+    [(set! ,x ,[e])
+     (let ([ans (assq x r)])
+       (if ans
+           `(set! ,(cdr ans) ,e)
+           `(set! ,x ,e)))]
     [,x
      (let ([ans (assq x r)])
        (if ans
@@ -225,7 +232,7 @@
              (and (datum? (car d))
                   (datum? (cdr d)))))))
 
-(echo-define-pass quote-const : L5 (ir) -> L6 ()
+(define-pass quote-const : L5 (ir) -> L6 ()
   (Proc : Expr (ir) -> Expr ()
     [,c `(quote ,c)]))
 
@@ -249,25 +256,122 @@
         (let f ([e0 (Expr e0)]
                 [e* (map Expr e*)])
           (if (null? e*)
-              `(cons ,e0 '())
-              `(cons ,e0 ,(f (car e*) (cdr e*)))))])]))
+              `(primcall cons ,e0 '())
+              `(primcall cons ,e0 ,(f (car e*) (cdr e*)))))])]))
+
+;;; find assigned var
+(define-language L8
+  (extends L7)
+  (terminals
+    (- (symbol (x)))
+    (+ (symbol (x a))))
+  (Expr (e body)
+    (- (lambda (x* ...) body)
+       (let ([x* e*] ...) body)
+       (letrec ([x* e*] ...) body))
+    (+ (lambda (x* ...) abody)
+       (let ([x* e*] ...) abody)
+       (letrec ([x* e*] ...) abody)))
+  (Abody (abody)
+    (+ (assigned (a* ...) body))))
+
+
+(define set:cons
+  (lambda (x s)
+    (if (memq x s) s (cons x s))))
+
+#;
+(define set:union
+  (lambda (s1 s2)
+    (fold-right (lambda (x acc)
+                  (set:cons x acc)) s2 s1)))
+
+(define set:union
+  (lambda set*
+    (if (null? set*)
+        '()
+        (fold-right (lambda (seta acc)
+                      (fold-right (lambda (x acc)
+                                    (set:cons x acc))
+                        acc seta))
+          (car set*) (cdr set*)))))
+
+(define set:diff
+  (lambda (s1 s2)
+    (let f ([s1 s1] [s '()])
+      (if (null? s1)
+          s
+          (if (memq (car s1) s2)
+              (f (cdr s1) s)
+              (f (cdr s1) (cons (car s1) s)))))))
+
+
+(define set:intersect
+  (lambda (s1 s2)
+    (fold-right (lambda (x acc)
+                  (if (memq x s2)
+                      (set:cons x acc)
+                      acc)) '() s1)))
+    
+
+(define-pass identify-assigned : L7 (ir) -> L8 ()
+  (Proc : Expr (ir) -> Expr ('())
+    [(lambda (,x* ...) ,[body a*])
+      (let ([this-a* (set:intersect a* x*)]
+            [out-a* (set:diff a* x*)])
+        (values `(lambda (,x* ...) (assigned (,this-a* ...) ,body)) out-a*))]
+    [(set! ,x ,[e a*])
+     (values `(set! ,x ,e) (set:cons x a*))]
+    [(begin ,[e* a**] ... ,[e a*])
+     (values `(begin ,e* ... ,e)
+       (apply set:union a* a**))]
+    [(let ([,x* ,[e* a**]] ...)
+       ,[body a*])
+     (values `(let ([,x* ,e*] ...)
+                (assigned (,(set:intersect a* x*) ...) ,body))
+       (apply set:union (set:diff a* x*) a**))]
+    [(letrec ([,x* ,[e* a**]] ...)
+       ,[body a*])
+      (values `(letrec ([,x* ,e*] ...)
+                 (assigned (,(set:intersect a* x*) ...) ,body))
+        (apply set:union (set:diff a* x*) a**))]
+    [(primcall ,pr ,[e* a**] ...)
+     (values `(primcall ,pr ,e* ...) (apply set:union a**))]
+    [(if ,[e0 a0] ,[e1 a1] ,[e2 a2])
+     (values `(if ,e0 ,e1 ,e2) (set:union a0 a1 a2))]
+    [(,[e0 a*] ,[e* a**] ...)
+     (values `(,e0 ,e* ...) (apply set:union a* a**))]
+    )
+  (let-values ([(ir a*) (Proc ir)])
+    #;
+    (unless (null? a*)
+      (error 'identify-assigned "found one or more unbound variables" a*))
+    ir))
+    
 
 (define convert 
   (lambda (sexp)
-    (let ([passes (list
-                    parse-L1
-                    rename
-                    remove-one-armed-if
-                    make-explicit-begin
-                    reduce-logic
-                    inverse-eta
-                    quote-const
-                    remove-complex-quote
-                    )])
+    (let ([passes 
+            `((,parse-L1 . ,unparse-L1)
+              (,rename . ,unparse-L1)
+              (,remove-one-armed-if . ,unparse-L2)
+              (,make-explicit-begin . ,unparse-L3)
+              (,reduce-logic . ,unparse-L4)
+              (,inverse-eta . ,unparse-L5)
+              (,quote-const . ,unparse-L6)
+              (,remove-complex-quote . ,unparse-L7)
+              (,identify-assigned . ,unparse-L8))])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L7 ir)
-            (f (cdr passes) ((car passes) ir)))))))
+            (unparse-L8 ir)
+            (let ([pass (car passes)])
+              (let ([ir ((car pass) ir)])
+                (if debug-pass
+                    (
+                      (pretty-print ((cdr pass) ir))
+                      (newline)
+                      (newline)))
+                (f (cdr passes) ir))))))))
 
 (define run
   (lambda (x)
@@ -288,6 +392,8 @@
   (run '(or 3 4 5))
   (run '(or))
   (run '(or (or 3 4) (+ (or 5) (or 6 7))))
+
+  (run ''(3 4))
   )
 
 #!eof
