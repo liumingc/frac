@@ -101,12 +101,11 @@
           `(let ([,nx* ,e*] ...)
              ,body* ...
              ,(Expr body r))))]
-    [(letrec ([,x* ,[e* r -> e*]] ...) ,body* ... ,body)
+    [(letrec ([,x* ,[e* r -> e*]] ...) ,[body* r -> body*] ... ,body)
       (let ([nx* (map (lambda (x) (gensym x)) x*)])
         (let ([r (extend* x* nx* r)])
           `(letrec ([,nx* ,e*] ...)
-             ,(map (lambda (x)
-                     (Expr x r)) body*)
+             ,body* ...
              ,(Expr body r))))]
     [(set! ,x ,[e])
      (let ([ans (assq x r)])
@@ -347,7 +346,52 @@
     (unless (null? a*)
       (error 'identify-assigned "found one or more unbound variables" a*))
     ir))
-    
+
+
+(define-language L9
+  (extends L8)
+  (Expr (e body)
+    (- (letrec ([x* e*] ...)
+         abody)
+       (lambda (x* ...) abody))
+    (+ (letrec ([x* le*] ...)
+         body)
+       le))
+  (LambdaExpr (le)
+    (+ (lambda (x* ...) abody))))
+
+
+(define-pass purify-letrec : L8 (ir) ->  L9 ()
+  (definitions
+    (define build-let
+      (lambda (x* e* body)
+        (with-output-language (L9 Expr)
+          (if (null? x*)
+              body
+              `(let ([,x* ,e*] ...) ,body)))))
+    (define build-letrec
+      (lambda (x* e* body)
+        (with-output-language (L9 Expr)
+          (if (null? x*)
+              body
+              `(letrec ([,x* ,e*] ...) ,body)))))
+    )
+  (Proc : Expr (ir) -> Expr ()
+    [(letrec ([,x* ,[e*]] ...) (assigned (,a* ...) ,[body]))
+     (let f ([ox* x*] [e* e*] [rx* '()] [re* '()] [rlx* '()] [rle* '()])
+       ;(printf "!!! ox:~s e*:~s~%" ox* e*)
+       (if (null? ox*)
+           (build-let (reverse rx*) (reverse re*)
+             (with-output-language (L9 Abody)
+               `(assigned (,a* ...)
+                  ,(build-letrec (reverse rlx*) (reverse rle*)
+                     body))))
+           (nanopass-case (L9 Expr) (car e*)
+             [(lambda (,x* ...) ,abody)
+              (f (cdr ox*) (cdr e*) rx* re* (cons (car ox*) rlx*) (cons (car e*) rle*))]
+             [else (f (cdr ox*) (cdr e*) (cons (car ox*) rx*) (cons (car e*) re*) rlx* rle*)])
+           ))])
+  )
 
 (define convert 
   (lambda (sexp)
@@ -360,14 +404,16 @@
               (,inverse-eta . ,unparse-L5)
               (,quote-const . ,unparse-L6)
               (,remove-complex-quote . ,unparse-L7)
-              (,identify-assigned . ,unparse-L8))])
+              (,identify-assigned . ,unparse-L8)
+              (,purify-letrec . ,unparse-L9))
+            ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L8 ir)
+            (unparse-L9 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
-                    (
+                    (begin
                       (pretty-print ((cdr pass) ir))
                       (newline)
                       (newline)))
@@ -378,6 +424,7 @@
     (let ([x (convert x)])
       ;(eval x)
       x
+      ;(pretty-print x)
 )))
 
 ;;; do some test
@@ -394,6 +441,13 @@
   (run '(or (or 3 4) (+ (or 5) (or 6 7))))
 
   (run ''(3 4))
+
+  (run '(letrec ([x 3]
+                 [y 4]
+                 [f (lambda (x y) (+ x y))]
+                 [multiply (lambda (x y) (* x y))])
+          (f (multiply x 7) (f y 8))))
+
   )
 
 #!eof
