@@ -364,34 +364,67 @@
 (define-pass purify-letrec : L8 (ir) ->  L9 ()
   (definitions
     (define build-let
-      (lambda (x* e* body)
+      (lambda (x* e* a* body)
         (with-output-language (L9 Expr)
           (if (null? x*)
               body
-              `(let ([,x* ,e*] ...) ,body)))))
+              `(let ([,x* ,e*] ...) (assigned (,a* ...) ,body))))))
     (define build-letrec
       (lambda (x* e* body)
         (with-output-language (L9 Expr)
           (if (null? x*)
               body
               `(letrec ([,x* ,e*] ...) ,body)))))
+
+    (define build-begin
+      (lambda (e* e)
+        (if (null? e*)
+            e
+            (with-output-language (L9 Expr)
+              `(begin ,e* ... ,e)))))
+
+    (define simple?
+      ;;; (quote c) | (primcall ,pr, e* ...) | (begin ,e* ... e) |
+      ;;; (if ,e0 ,e1 ,e2) | ,x
+      (lambda (e)
+        (nanopass-case (L9 Expr) e
+          [(quote ,c) #t]
+          [(primcall ,pr ,e* ...)
+           (for-all simple? e*)]
+          [(begin ,e* ... ,e)
+           (and (for-all simple? e*) (simple e))]
+          [(if ,e0 ,e1 ,e2) (and (simple? e0) (simple? e1) (simple? e2))]
+          [,x #t]
+          [else #f])))
+
+    (define lambda?
+      (lambda (e)
+        (nanopass-case (L9 Expr) e
+          [(lambda (,x* ...) ,abody) #t]
+          [else #f])))
+           
     )
   (Proc : Expr (ir) -> Expr ()
     [(letrec ([,x* ,[e*]] ...) (assigned (,a* ...) ,[body]))
-     (let f ([ox* x*] [e* e*] [rx* '()] [re* '()] [rlx* '()] [rle* '()])
-       ;(printf "!!! ox:~s e*:~s~%" ox* e*)
-       (if (null? ox*)
-           (build-let (reverse rx*) (reverse re*)
-             (with-output-language (L9 Abody)
-               `(assigned (,a* ...)
-                  ,(build-letrec (reverse rlx*) (reverse rle*)
-                     body))))
-           (nanopass-case (L9 Expr) (car e*)
-             [(lambda (,x* ...) ,abody)
-              (f (cdr ox*) (cdr e*) rx* re* (cons (car ox*) rlx*) (cons (car e*) rle*))]
-             [else (f (cdr ox*) (cdr e*) (cons (car ox*) rx*) (cons (car e*) re*) rlx* rle*)])
-           ))])
-  )
+     (let f ([xb* x*] [e* e*]
+             [xs* '()] [es* '()] ; simple
+             [xl* '()] [el* '()] ; letrec function
+             [xc* '()] [ec* '()] ; complex
+             )
+       (if (null? xb*)
+           (build-let xc* (make-list (length xc*) `(quote #f)) xc*
+             (build-letrec xl* el*
+               (build-let xs* es* '()
+                 (build-begin
+                   (map (lambda (xc xe)
+                          `(set! ,xc ,xe)) xc* ec*)
+                   body))))
+           (let ([x (car xb*)] [e (car e*)])
+             (cond
+               [(lambda? e) (f (cdr xb*) (cdr e*) xs* es* (cons x xl*) (cons e el*) xc* ec*)]
+               [(simple? e) (f (cdr xb*) (cdr e*) (cons x xs*) (cons e es*) xl* el* xc* ec*)]
+               [else (f (cdr xb*) (cdr e*) xs* es* xl* el* (cons x xc*) (cons e ec*))]))))]))
+
 
 (define convert 
   (lambda (sexp)
