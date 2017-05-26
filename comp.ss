@@ -425,6 +425,47 @@
                [(simple? e) (f (cdr xb*) (cdr e*) (cons x xs*) (cons e es*) xl* el* xc* ec*)]
                [else (f (cdr xb*) (cdr e*) xs* es* xl* el* (cons x xc*) (cons e ec*))]))))]))
 
+;;; ((lambda (x* ...) abody) e* ...) -> (let ([x* e*] ...) abody)
+(define-pass optimize-direct-call : L9 (ir) -> L9 ()
+  (Proc : Expr (e) -> Expr ()
+    [((lambda (,x* ...) ,[abody]) ,[e*] ...)
+     `(let ([,x* ,e*] ...)
+        ,abody)]))
+
+
+(define-pass find-let-bound-lambdas : L9 (ir) -> L9 ()
+  (Proc : Expr (e) -> Expr ()
+    (definitions
+      (define lambda?
+        (lambda (e)
+          (nanopass-case (L9 Expr) e
+            [(lambda (,x* ...) ,abody) #t]
+            [else #f])))
+      (define build-letrec
+        (lambda (x* e* body)
+          (with-output-language (L9 Expr)
+            (if (null? x*)
+                body
+                `(letrec ([,x* ,e*] ...) ,body)))))
+      (define build-let
+        (lambda (x* e* a* body)
+          (with-output-language (L9 Expr)
+            (if (null? x*)
+                body
+                `(let ([,x* ,e*] ...) (assigned (,a* ...) ,body))))))
+      )
+    [(let ([,x* ,e*] ...) (assigned (,a* ...) ,body))
+     (let f ([x* x*] [e* e*]
+             [xv* '()] [ev* '()]
+             [xl* '()] [el* '()])
+       (if (null? x*)
+           (build-let xv* ev* a*
+             (build-letrec xl* el* body))
+           (cond
+             [(lambda? (car e*))
+              (f (cdr x*) (cdr e*) xv* ev* (cons (car x*) xl*) (cons (car e*) el*))]
+             [else
+              (f (cdr x*) (cdr e*) (cons (car x*) xv*) (cons (car e*) ev*) xl* el*)])))]))
 
 (define convert 
   (lambda (sexp)
@@ -438,7 +479,10 @@
               (,quote-const . ,unparse-L6)
               (,remove-complex-quote . ,unparse-L7)
               (,identify-assigned . ,unparse-L8)
-              (,purify-letrec . ,unparse-L9))
+              (,purify-letrec . ,unparse-L9)
+              (,optimize-direct-call . ,unparse-L9)
+              (,find-let-bound-lambdas . ,unparse-L9)
+              )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
@@ -452,16 +496,19 @@
                       (newline)))
                 (f (cdr passes) ir))))))))
 
+
+
 (define run
   (lambda (x)
     (let ([x (convert x)])
       ;(eval x)
       x
-      ;(pretty-print x)
+      (pretty-print x)
 )))
 
 ;;; do some test
 (let ()
+  #|
   (run '(if 3 4))
   (run '(let ([x 4])
           (+ x 4)
@@ -480,6 +527,14 @@
                  [f (lambda (x y) (+ x y))]
                  [multiply (lambda (x y) (* x y))])
           (f (multiply x 7) (f y 8))))
+  (run '((lambda (a b) (+ a b)) 3 4))
+  |#
+
+  (run '(let ([foo (lambda (a b) (+ a b))]
+              [x 3]
+              [y 4])
+          (letrec ([m 5] [n 6] [bar (lambda (x y) (- x y))])
+            (+ (foo x y) (bar m n)))))
 
   )
 
