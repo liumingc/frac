@@ -529,6 +529,22 @@
 
   (Proc ir '()))
 
+(define-language L12
+  (extends L11)
+  (terminals
+    (- (symbol (x)))
+    (+ (symbol (x f))))
+  (LambdaExpr (le)
+    (- (lambda (x* ...) body))
+    (+ (lambda (x* ...) fbody)))
+  (FreeBody (fbody)
+    (+ (free (f* ...) body))))
+
+#;
+(define-pass uncover-free : L11 (ir) -> L12 ()
+
+  )
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
