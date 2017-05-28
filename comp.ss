@@ -497,23 +497,36 @@
     (+ (lambda (x* ...) body))))
 
 (define-pass convert-assignments : L10 (ir) -> L11 ()
+  (definitions
+    (define build-let
+      (lambda (x* e* body)
+        (with-output-language (L11 Expr)
+          (if (null? x*)
+              body
+              `(let ([,x* ,e*] ...) ,body)))))
+    (define lookup
+      (lambda (x r)
+        (let ([ans (assq x r)])
+          (if ans (cdr ans) x))))
+    )
   (Proc : Expr (e r) -> Expr ()
-    [(let ([,x* ,[e*]] ...) (assigned (,a* ...) ,[body (append a* r) -> body]))
-     (if (null? a*)
-         `(let ([,x* ,e*] ...) ,body)
-          (let f ([xb* x*] [e* e*] [xa* '()] [ea* '()] [xs* '()] [es* '()])
-            (if (null? xb*)
-                `(let ([,xs* ,es*] ...
-                       [,xa* (primcall cons ,ea* '#f)] ...)
-                       ;,(map (lambda (xa ea) `(,xa (primcall cons ,ea '#f))) xa* ea*) ...)
-                   ,body)
-                (let ([x (car xb*)] [e (car e*)])
-                  (if (memq x a*)
-                      (f (cdr xb*) (cdr e*) (cons x xa*) (cons e ea*) xs* es*)
-                      (f (cdr xb*) (cdr e*) xa* ea* (cons x xs*) (cons e es*)))))))]
+    [(let ([,x* ,[e*]] ...) (assigned (,a* ...) ,body))
+     (let ([t* (map (lambda (a) (gensym)) a*)])
+       (let ([r (append (map cons a* t*) r)])
+         (build-let (map (lambda (x) (lookup x r)) x*) e*
+           (build-let a* (map (lambda (t) `(primcall cons ,t '#f)) t*)
+             (Proc body r)))))]
     [(set! ,x ,[e r -> e])
      `(primcall set-car! ,x ,e)]
-    [,x (guard (memq x r)) `(car ,x)])
+    [,x (guard (assq x r)) `(car ,x)])
+  (LambdaExpr : LambdaExpr (le r) -> LambdaExpr ()
+    [(lambda (,x* ...) (assigned (,a* ...) ,body))
+     (let ([t* (map (lambda (a) (gensym)) a*)])
+       (let ([r (append (map cons a* t*) r)])
+         `(lambda (,(map (lambda (x) (lookup x r)) x*) ...)
+            ,(build-let a* (map (lambda (t) `(primcall cons ,t '#f)) t*)
+               (Proc body r)))))])
+
   (Proc ir '()))
 
 (define convert 
@@ -593,6 +606,11 @@
   (run '(let ([x 3]
               [y 4])
           (set! x (+ x 5))
+          (+ x y)))
+
+  (run '(lambda (x y z)
+          (set! x (+ x 3))
+          (set! y (+ x z))
           (+ x y)))
 
 
