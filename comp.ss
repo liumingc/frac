@@ -51,6 +51,8 @@
     (cons . 2)
     (car . 1)
     (cdr . 1)
+    (set-car! . 2)
+    (set-cdr! . 2)
     (null? . 1)))
 
 (define prim?
@@ -467,6 +469,53 @@
              [else
               (f (cdr x*) (cdr e*) (cons (car x*) xv*) (cons (car e*) ev*) xl* el*)])))]))
 
+(define-language L10
+  (extends L9)
+  (Expr (e body)
+    (- le)))
+
+(define-pass remove-anonymous-lambda : L9 (ir) -> L10 ()
+  (Proc : Expr (e) -> Expr ()
+    [(lambda (,x* ...) ,[abody])
+     (let ([f (gensym 'anony)]) 
+       `(letrec ([,f (lambda (,x* ...) ,abody)])
+          ,f))]))
+
+(define-language L11
+  (extends L10)
+  (terminals
+    (- (symbol (x a)))
+    (+ (symbol (x))))
+  (Expr (e body)
+    (- (let ([x* e*] ...) abody)
+       (set! x e))
+    (+ (let ([x* e*] ...) body)))
+  (Abody (abody)
+    (- (assigned (a* ...) body)))
+  (LambdaExpr (le)
+    (- (lambda (x* ...) abody))
+    (+ (lambda (x* ...) body))))
+
+(define-pass convert-assignments : L10 (ir) -> L11 ()
+  (Proc : Expr (e r) -> Expr ()
+    [(let ([,x* ,[e*]] ...) (assigned (,a* ...) ,[body (append a* r) -> body]))
+     (if (null? a*)
+         `(let ([,x* ,e*] ...) ,body)
+          (let f ([xb* x*] [e* e*] [xa* '()] [ea* '()] [xs* '()] [es* '()])
+            (if (null? xb*)
+                `(let ([,xs* ,es*] ...
+                       [,xa* (primcall cons ,ea* '#f)] ...)
+                       ;,(map (lambda (xa ea) `(,xa (primcall cons ,ea '#f))) xa* ea*) ...)
+                   ,body)
+                (let ([x (car xb*)] [e (car e*)])
+                  (if (memq x a*)
+                      (f (cdr xb*) (cdr e*) (cons x xa*) (cons e ea*) xs* es*)
+                      (f (cdr xb*) (cdr e*) xa* ea* (cons x xs*) (cons e es*)))))))]
+    [(set! ,x ,[e r -> e])
+     `(primcall set-car! ,x ,e)]
+    [,x (guard (memq x r)) `(car ,x)])
+  (Proc ir '()))
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -482,11 +531,13 @@
               (,purify-letrec . ,unparse-L9)
               (,optimize-direct-call . ,unparse-L9)
               (,find-let-bound-lambdas . ,unparse-L9)
+              (,remove-anonymous-lambda . ,unparse-L10)
+              (,convert-assignments . ,unparse-L11)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L9 ir)
+            (unparse-L11 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
@@ -528,13 +579,22 @@
                  [multiply (lambda (x y) (* x y))])
           (f (multiply x 7) (f y 8))))
   (run '((lambda (a b) (+ a b)) 3 4))
-  |#
 
   (run '(let ([foo (lambda (a b) (+ a b))]
               [x 3]
               [y 4])
           (letrec ([m 5] [n 6] [bar (lambda (x y) (- x y))])
             (+ (foo x y) (bar m n)))))
+  (run '((lambda (x y) (+ x y)) 3 4))
+  (run '(let ([foo (lambda (f a b) (f a b))])
+          (foo + 3 4)))
+  |#
+
+  (run '(let ([x 3]
+              [y 4])
+          (set! x (+ x 5))
+          (+ x y)))
+
 
   )
 
