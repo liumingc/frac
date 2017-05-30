@@ -518,7 +518,7 @@
              (Proc body r)))))]
     [(set! ,x ,[e r -> e])
      `(primcall set-car! ,x ,e)]
-    [,x (guard (assq x r)) `(car ,x)])
+    [,x (guard (assq x r)) `(primcall car ,x)])
   (LambdaExpr : LambdaExpr (le r) -> LambdaExpr ()
     [(lambda (,x* ...) (assigned (,a* ...) ,body))
      (let ([t* (map (lambda (a) (gensym)) a*)])
@@ -540,10 +540,32 @@
   (FreeBody (fbody)
     (+ (free (f* ...) body))))
 
-#;
 (define-pass uncover-free : L11 (ir) -> L12 ()
-
-  )
+  (Expr : Expr (e) -> Expr (free*)
+    [(let ([,x* ,[e* f**]] ...) ,[body f*])
+     (values
+       `(let ([,x* ,e*] ...) ,body)
+       (set:diff (apply set:union (cons f* f**)) x*))]
+    [(letrec ([,x* ,[le* f**]] ...) ,[body f*])
+     (values
+       `(letrec ([,x* ,le*] ...) ,body)
+       (set:diff (apply set:union (cons f* f**)) x*))]
+    [(primcall ,pr ,[e* f**] ...)
+     (values `(primcall ,pr ,e* ...) (apply set:union f**))]
+    [(quote ,c) (values `(quote ,c) '())]
+    [(if ,[e0 f0*] ,[e1 f1*] ,[e2 f2*]) (values `(if ,e0 ,e1 ,e2) (set:union f0* f1* f2*))]
+    [(,[e0 f0*] ,[e* f**] ...)
+     (values `(,e0 ,e* ...) (apply set:union f0* f**))]
+    [(begin ,[e* f**] ... ,[e f*])
+     (values `(begin ,e* ... ,e) (apply set:union f* f**))]
+    [,x (values x (list x))]
+    )
+  (LambdaExpr : LambdaExpr (le) -> LambdaExpr (free*)
+    [(lambda (,x* ...) ,[body f*])
+     (let ([f* (set:diff f* x*)])
+       (values `(lambda (,x* ...) (free (,f* ...) ,body)) f*))])
+  (let-values ([(ir free*) (Expr ir)])
+    ir))
 
 (define convert 
   (lambda (sexp)
@@ -562,11 +584,12 @@
               (,find-let-bound-lambdas . ,unparse-L9)
               (,remove-anonymous-lambda . ,unparse-L10)
               (,convert-assignments . ,unparse-L11)
+              (,uncover-free . unparse-L12)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L11 ir)
+            (unparse-L12 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
@@ -617,7 +640,6 @@
   (run '((lambda (x y) (+ x y)) 3 4))
   (run '(let ([foo (lambda (f a b) (f a b))])
           (foo + 3 4)))
-  |#
 
   (run '(let ([x 3]
               [y 4])
@@ -628,6 +650,13 @@
           (set! x (+ x 3))
           (set! y (+ x z))
           (+ x y)))
+  |#
+
+  (run '(let ([n 0])
+          (let ([f (lambda (x)
+                     (set! n (+ n x))
+                     n)])
+            (f 5))))
 
 
   )
