@@ -567,6 +567,39 @@
   (let-values ([(ir free*) (Expr ir)])
     ir))
 
+(define-language L13
+  (extends L12)
+  (terminals
+    (- (symbol (x f)))
+    (+ (symbol (x f l))))
+  (Expr (e body)
+    (- (letrec ([x* le*] ...) body))
+    (+ (closures ([x* l* f** ...] ...) lbody)
+       (label l)))
+  (LabelsBody (lbody)
+    (+ (labels ([l* le*] ...) body))))
+
+(trace-define-pass convert-closures : L12 (ir) -> L13 ()
+  (Expr : Expr (e) -> Expr ()
+    [(letrec ([,x* ,[le*]] ...) ,[body])
+     (let ([l* (map (lambda (x)
+                      (let ([l (string-append "l:" (symbol->string x))])
+                        (gensym l))) x*)]
+           [cp* (map (lambda (x)
+                       (gensym 'cp)) x*)])
+       (let ([clo* (map (lambda (le cp)
+                         (nanopass-case (L13 LambdaExpr) le
+                           [(lambda (,x* ...) (free (,f* ...) ,body))
+                            (cons (with-output-language (L13 LambdaExpr)
+                                      `(lambda (,cp ,x* ...)
+                                         (free (,f* ...) ,body)))
+                              f*)]))
+                     le* cp*)])
+         (let ([f** (map cdr clo*)]
+               [le* (map car clo*)])
+           `(closures ([,x* ,l* ,f** ...] ...)
+              (labels ([,l* ,le*] ...) ,body)))))]))
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -585,11 +618,12 @@
               (,remove-anonymous-lambda . ,unparse-L10)
               (,convert-assignments . ,unparse-L11)
               (,uncover-free . unparse-L12)
+              (,convert-closures . unparse-L13)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L12 ir)
+            (unparse-L13 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
@@ -650,13 +684,28 @@
           (set! x (+ x 3))
           (set! y (+ x z))
           (+ x y)))
-  |#
 
   (run '(let ([n 0])
           (let ([f (lambda (x)
                      (set! n (+ n x))
                      n)])
             (f 5))))
+  |#
+
+  (run '(let ([n 0]
+              [init 5])
+          (letrec ([foo (lambda (x)
+                       (set! n (+ n x))
+                       n)]
+                [bar (lambda (x)
+                       (set! n (- n x))
+                       n)]
+                [reset (lambda ()
+                         (set! n init))])
+            (foo 3)
+            (bar 1)
+            (reset)
+            n)))
 
 
   )
