@@ -579,7 +579,7 @@
   (LabelsBody (lbody)
     (+ (labels ([l* le*] ...) body))))
 
-(trace-define-pass convert-closures : L12 (ir) -> L13 ()
+(define-pass convert-closures : L12 (ir) -> L13 ()
   (Expr : Expr (e) -> Expr ()
     [(letrec ([,x* ,[le*]] ...) ,[body])
      (let ([l* (map (lambda (x)
@@ -598,7 +598,13 @@
          (let ([f** (map cdr clo*)]
                [le* (map car clo*)])
            `(closures ([,x* ,l* ,f** ...] ...)
-              (labels ([,l* ,le*] ...) ,body)))))]))
+              (labels ([,l* ,le*] ...) ,body)))))]
+    [(,x ,[e*] ...)
+     `(,x ,x ,e* ...)]
+    [(,[e] ,[e*] ...)
+     (let ([t (gensym)])
+       `(let ([,t ,e])
+          (,t ,t ,e* ...)))]))
 
 (define convert 
   (lambda (sexp)
