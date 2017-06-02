@@ -456,7 +456,7 @@
                 body
                 `(let ([,x* ,e*] ...) (assigned (,a* ...) ,body))))))
       )
-    [(let ([,x* ,e*] ...) (assigned (,a* ...) ,body))
+    [(let ([,x* ,[e*]] ...) (assigned (,a* ...) ,[body]))
      (let f ([x* x*] [e* e*]
              [xv* '()] [ev* '()]
              [xl* '()] [el* '()])
@@ -700,7 +700,7 @@
 
   (run '(let ([n 0]
               [init 5])
-          (letrec ([foo (lambda (x)
+          (let ([foo (lambda (x)
                        (set! n (+ n x))
                        n)]
                 [bar (lambda (x)
