@@ -53,7 +53,15 @@
     (cdr . 1)
     (set-car! . 2)
     (set-cdr! . 2)
-    (null? . 1)))
+    (null? . 1)
+
+    ;;; closure prim
+    (make-clo . 1)
+    (clo-code-set! . 2)
+    (clo-data-set! . 3)
+    (clo-code . 1)
+    (clo-data . 2)
+    ))
 
 (define prim?
   (lambda (x)
@@ -606,6 +614,81 @@
        `(let ([,t ,e])
           (,t ,t ,e* ...)))]))
 
+;;; TODO optimize-known-call
+
+(define-language L14
+  (extends L13)
+  (Expr (e body)
+    (- (closures ([x* l* f** ...] ...) lbody))
+    (+ (labels ([l* le*] ...) body)))
+  (LabelsBody (lbody)
+    (- (labels ([l* le*] ...) body)))
+  (LambdaExpr (le)
+    (- (lambda (x* ...) fbody))
+    (+ (lambda (x* ...) body)))
+  (FreeBody (fbody)
+    (- (free (f* ...) body)))
+  )
+
+(trace-define-pass expose-clo-prims : L13 (ir) -> L14 ()
+  (definitions
+    (define set-data
+      (lambda (x f*)
+        (with-output-language (L14 Expr)
+          (let f ([f* f*] [n 0] [e* '()])
+            (if (null? f*) e*
+                (f (cdr f*) (+ n 1) (cons `(primcall clo-data-set! ,x ',n ,(car f*)) e*)))))))
+    (define init-clo*
+      (lambda (x* l* f**)
+        (with-output-language (L14 Expr)
+          (let ([codes (map (lambda (x l)
+                              `(primcall clo-code-set! ,x ,l)) x* l*)]
+                [datas (map (lambda (x f*)
+                              (set-data x f*)) x* f**)])
+            (apply append codes datas)))))
+    (define extend*
+      (lambda (x* l* r)
+        (fold-right (lambda (x l r)
+                      (cons (cons x l) r)) r x* l*)))
+    )
+  (Expr : Expr (e lr fr) -> Expr ()
+    [(closures ([,x* ,l* ,f** ...] ...) (labels ([,l1* ,le1*] ...) ,body))
+     (let ([clo* (map (lambda (f*) `(primcall make-clo ',(length f*))) f**)]
+           [le* (map (lambda (le) (LambdaExpr le lr fr)) le1*)])
+       ;(printf "clo*: ~s~%" (map (lambda (x) (unparse-L14 x)) clo*))
+       (let ([iclo* (init-clo* x* l* f**)])
+         ;(printf "iclo*: ~s~%" (map (lambda (x) (unparse-L14 x)) iclo*))
+         `(let ([,x* ,clo*] ...)
+            (labels ([,l1* ,le*] ...)
+              (begin
+                ,iclo* ...
+                ,(Expr body (extend* x* l* lr) fr)
+                )))))]
+    [,x (guard (assq x lr))
+     (let ([l (cdr (assq x lr))])
+       `(primcall clo-code ,l))]
+    [,x (guard (assq x fr))
+     (let* ([ans (cdr (assq x fr))]
+            [l (car ans)]
+            [n (cdr ans)])
+       `(primcall clo-data ,l ',n))]
+    )
+  (LambdaExpr : LambdaExpr (le lr fr) -> LambdaExpr ()
+    [(lambda (,x* ...) (free (,f* ...) ,body))
+     (let* ([cp (car x*)]
+            [x* (cdr x*)])
+       (let ([fr (do ([n 0 (+ n 1)]
+                      [f* f* (cdr f*)]
+                      [fr fr (cons (cons (car f*) (cons cp n)) fr)])
+                   ((null? f*) fr))])
+         (printf "fr->~s~%" fr)
+         `(lambda (,cp ,x* ...) ,(Expr body lr fr))))])
+  #;
+  (LabelsBody : LabelsBody (lbody lr fr) -> Expr ()
+    [(labels ([,l* ,[LambdaExpr : le* r -> le*]] ...) ,[body r -> body])
+     `(labels ([,l* ,le*] ...) ,body)])
+  (Expr ir '() '()))
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -625,11 +708,12 @@
               (,convert-assignments . ,unparse-L11)
               (,uncover-free . unparse-L12)
               (,convert-closures . unparse-L13)
+              (,expose-clo-prims . unparse-L14)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L13 ir)
+            (unparse-L14 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
