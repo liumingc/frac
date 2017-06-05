@@ -679,6 +679,28 @@
     )
   (Expr ir #f '()))
 
+(define-language L15
+  (extends L14)
+  (entry Program)
+  (Program (p)
+    (+ (labels ([l* le*] ...) l)))
+  (Expr (e body)
+    (- (labels ([l* le*] ...) body))))
+
+(define-pass lift-lambdas : L14 (ir) -> L15 ()
+  (definitions
+    (define cl* '())
+    (define cle* '()))
+  (Expr : Expr (e) -> Expr ()
+    [(labels ([,l* ,[le*]] ...) ,[body])
+     (set! cl* (append l* cl*))
+     (set! cle* (append le* cle*))
+     body])
+  (let ([ir (Expr ir)])
+    (with-output-language (L15 Program)
+      `(labels ([,cl* ,cle*] ... [l:main (lambda () ,ir)])
+         l:main))))
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -699,11 +721,12 @@
               (,uncover-free . unparse-L12)
               (,convert-closures . unparse-L13)
               (,expose-clo-prims . unparse-L14)
+              (,lift-lambdas . unparse-L15)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L14 ir)
+            (unparse-L15 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
