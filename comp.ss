@@ -630,64 +630,54 @@
     (- (free (f* ...) body)))
   )
 
-(trace-define-pass expose-clo-prims : L13 (ir) -> L14 ()
+(define-pass expose-clo-prims : L13 (ir) -> L14 ()
   (definitions
-    (define set-data
-      (lambda (x f*)
+    (define build-clo-set
+      (lambda (x* l* f** cp free*)
+        (let ([o
         (with-output-language (L14 Expr)
-          (let f ([f* f*] [n 0] [e* '()])
-            (if (null? f*) e*
-                (f (cdr f*) (+ n 1) (cons `(primcall clo-data-set! ,x ',n ,(car f*)) e*)))))))
-    (define init-clo*
-      (lambda (x* l* f**)
+          (fold-left
+            (lambda (e* x l f*)
+              (let lp ([f* f*] [e* e*] [i 0])
+                (if (null? f*)
+                    (cons `(primcall clo-code-set! ,x ,l) e*)
+                    (lp (cdr f*)
+                      (cons `(primcall clo-data-set! ,x ',i ,(handle-clo-ref (car f*) cp free*))
+                        e*)
+                      (+ i 1)))))
+            '() x* l* f**))])
+          ;(printf "~s~%" (map (lambda (x) (unparse-L14 x)) o))
+          #;
+          (for-each (lambda (x)
+                      (printf "~s~%" (pretty-print (unparse-L14 x)))) o)
+          o
+          )))
+    (define handle-clo-ref
+      (lambda (f cp free*)
         (with-output-language (L14 Expr)
-          (let ([codes (map (lambda (x l)
-                              `(primcall clo-code-set! ,x ,l)) x* l*)]
-                [datas (map (lambda (x f*)
-                              (set-data x f*)) x* f**)])
-            (apply append codes datas)))))
-    (define extend*
-      (lambda (x* l* r)
-        (fold-right (lambda (x l r)
-                      (cons (cons x l) r)) r x* l*)))
+          (let lp ([free* free*] [i 0])
+            (cond
+              [(null? free*) f]
+              [(eq? f (car free*)) `(primcall clo-data ,cp ',i)]
+              [else (lp (cdr free*) (+ i 1))])))))
     )
-  (Expr : Expr (e lr fr) -> Expr ()
-    [(closures ([,x* ,l* ,f** ...] ...) (labels ([,l1* ,le1*] ...) ,body))
-     (let ([clo* (map (lambda (f*) `(primcall make-clo ',(length f*))) f**)]
-           [le* (map (lambda (le) (LambdaExpr le lr fr)) le1*)])
-       ;(printf "clo*: ~s~%" (map (lambda (x) (unparse-L14 x)) clo*))
-       (let ([iclo* (init-clo* x* l* f**)])
-         ;(printf "iclo*: ~s~%" (map (lambda (x) (unparse-L14 x)) iclo*))
-         `(let ([,x* ,clo*] ...)
-            (labels ([,l1* ,le*] ...)
-              (begin
-                ,iclo* ...
-                ,(Expr body (extend* x* l* lr) fr)
-                )))))]
-    [,x (guard (assq x lr))
-     (let ([l (cdr (assq x lr))])
-       `(primcall clo-code ,l))]
-    [,x (guard (assq x fr))
-     (let* ([ans (cdr (assq x fr))]
-            [l (car ans)]
-            [n (cdr ans)])
-       `(primcall clo-data ,l ',n))]
+  (Expr : Expr (e cp free*) -> Expr ()
+    [(closures ([,x* ,l* ,f** ...] ...)
+       (labels ([,l1* ,[le*]] ...) ,[body]))
+      (let ([size* (map (lambda (f*) (length f*)) f**)])
+        `(let ([,x* (primcall make-clo ',size*)] ...)
+           ;,body
+           (labels ([,l1* ,le*] ...)
+             (begin
+               ,(build-clo-set x* l* f** cp free*) ...
+               ,body))))]
+    [(,[e] ,[e*] ...) `((primcall clo-code ,e) ,e* ...)]
+    [,x (handle-clo-ref x cp free*)])
+  (LambdaExpr : LambdaExpr (le) -> LambdaExpr ()
+    [(lambda (,x ,x* ...) (free (,f* ...) ,[body x f* -> body]))
+     `(lambda (,x ,x* ...) ,body)]
     )
-  (LambdaExpr : LambdaExpr (le lr fr) -> LambdaExpr ()
-    [(lambda (,x* ...) (free (,f* ...) ,body))
-     (let* ([cp (car x*)]
-            [x* (cdr x*)])
-       (let ([fr (do ([n 0 (+ n 1)]
-                      [f* f* (cdr f*)]
-                      [fr fr (cons (cons (car f*) (cons cp n)) fr)])
-                   ((null? f*) fr))])
-         (printf "fr->~s~%" fr)
-         `(lambda (,cp ,x* ...) ,(Expr body lr fr))))])
-  #;
-  (LabelsBody : LabelsBody (lbody lr fr) -> Expr ()
-    [(labels ([,l* ,[LambdaExpr : le* r -> le*]] ...) ,[body r -> body])
-     `(labels ([,l* ,le*] ...) ,body)])
-  (Expr ir '() '()))
+  (Expr ir #f '()))
 
 (define convert 
   (lambda (sexp)
@@ -802,4 +792,4 @@
 
 #!eof
 
-;(unparse-L2 (remove-one-armed-if (parse-L1 '(if 3 4))))
+;(unparse-L3 (remove-one-armed-if (parse-L1 '(if 3 4))))
