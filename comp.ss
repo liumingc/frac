@@ -731,14 +731,14 @@
     (define simple?
       (lambda (x)
         (let ([a (simple1? x)])
-          (printf "~s simple? ~s~%" (unparse-L16 x) a)
+          ;(printf "~s simple? ~s~%" (unparse-L16 x) a)
           a)))
     (define convert-e*
       (lambda (e* f)
         (let lp ([e* e*] [x* '()] [xe* '()] [ans '()])
           (if (null? e*)
               (begin
-                (printf "x*: ~s~% xe*:~s~% ans:~s~%~%" x* xe* (map unparse-L16 ans))
+                ;(printf "x*: ~s~% xe*:~s~% ans:~s~%~%" x* xe* (map unparse-L16 ans))
               (f x* xe* (reverse ans)))
               (let ([e (car e*)])
                 (if (simple? e)
