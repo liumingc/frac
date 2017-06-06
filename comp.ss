@@ -701,6 +701,69 @@
       `(labels ([,cl* ,cle*] ... [l:main (lambda () ,ir)])
          l:main))))
 
+(define-language L16
+  (extends L15)
+  (entry Program)
+  (Expr (e body)
+    (- (primcall pr e* ...)
+       (e0 e* ...)
+       x
+       'c
+       (label l))
+    (+ (primcall pr se* ...) => (pr se* ...)
+       (se0 se* ...)
+       se))
+  (SimpleExpr (se)
+    (+ x
+       'c
+       (label l)))
+  )
+
+(define-pass remove-complex-opera* : L15 (ir) -> L16 ()
+  (definitions
+    (define simple1?
+      (lambda (x)
+        (nanopass-case (L16 Expr) x
+          [,x #t]
+          [',c #t]
+          [(label ,l) #t]
+          [else #f])))
+    (define simple?
+      (lambda (x)
+        (let ([a (simple1? x)])
+          (printf "~s simple? ~s~%" (unparse-L16 x) a)
+          a)))
+    (define convert-e*
+      (lambda (e* f)
+        (let lp ([e* e*] [x* '()] [xe* '()] [ans '()])
+          (if (null? e*)
+              (begin
+                (printf "x*: ~s~% xe*:~s~% ans:~s~%~%" x* xe* (map unparse-L16 ans))
+              (f x* xe* (reverse ans)))
+              (let ([e (car e*)])
+                (if (simple? e)
+                    (lp (cdr e*) x* xe* (cons e ans))
+                    (let ([x (gensym 's)])
+                      (lp (cdr e*) (cons x x*) (cons e xe*) (cons x ans)))))))))
+    )
+  (Expr : Expr (e) -> Expr ()
+    [(primcall ,pr ,[e*] ...)
+     (convert-e* e*
+       (lambda (x* xe* ans)
+         (if (null? x*)
+             `(primcall ,pr ,ans ...)
+             `(let ([,x* ,xe*] ...)
+                (primcall ,pr ,ans ...)))))]
+    [(,[e0] ,[e*] ...)
+     (convert-e* (cons e0 e*)
+       (lambda (x* xe* ans)
+         (if (null? x*)
+             ans
+             `(let ([,x* ,xe*] ...)
+                (,(car ans) ,(cdr e*) ...)
+                ))))]))
+     
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -722,11 +785,12 @@
               (,convert-closures . unparse-L13)
               (,expose-clo-prims . unparse-L14)
               (,lift-lambdas . unparse-L15)
+              (,remove-complex-opera* . unparse-L16)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L15 ir)
+            (unparse-L16 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
