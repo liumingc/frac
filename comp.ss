@@ -54,6 +54,8 @@
     (set-car! . 2)
     (set-cdr! . 2)
     (null? . 1)
+    (pair? . 1)
+    (void . 0)
 
     ;;; closure prim
     (make-clo . 1)
@@ -762,7 +764,134 @@
              `(let ([,x* ,xe*] ...)
                 (,(car ans) ,(cdr e*) ...)
                 ))))]))
-     
+
+(define effect-prim-tbl
+  '((set-car! . 2)
+    (set-cdr! . 2)
+    (clo-code-set! . 2)
+    (clo-data-set! . 3)))
+
+(define value-prim-tbl
+  '((+ . 2)
+    (- . 2)
+    (* . 2)
+    (/ . 2)
+    (% . 2)
+    (cons . 2)
+    (car . 1)
+    (cdr . 1)
+    (make-clo . 1)
+    (clo-code . 1)
+    (clo-data . 2)
+    (void . 0)
+    ))
+
+(define pred-prim-tbl
+  '((null? . 1)
+    (pair? . 1)
+    (= . 2)
+    (< . 2)
+    (> . 2)))
+
+(define effect-prim?
+  (lambda (x)
+    (assq x effect-prim-tbl)))
+(define value-prim?
+  (lambda (x)
+    (assq x value-prim-tbl)))
+(define pred-prim?
+  (lambda (x)
+    (assq x pred-prim-tbl)))
+
+(define-language L17
+  (terminals
+    (symbol (x l))
+    (const (c))
+    (effect-prim (epr))
+    (value-prim (vpr))
+    (pred-prim (ppr)))
+  (entry Program)
+  (Program (prog)
+    (labels ([l* le*] ...) l))
+  (LambdaExpr (le)
+    (lambda (x* ...) body))
+  (SimpleExpr (se)
+    x
+    (quote c)
+    (label l))
+  (Value (v body)
+    se
+    (se se* ...)
+    (primcall vpr se* ...) => (vpr se* ...)
+    (if p0 v1 v2)
+    (begin e* ... v)
+    (let ([x* v*] ...) v))
+  (Effect (e)
+    (nop)
+    (primcall epr se* ...) => (epr se* ...)
+    (if p0 e1 e2)
+    (begin e* ... e)
+    (let ([x* v*] ...) e)
+    (se se* ...))
+  (Pred (p)
+    (true)
+    (false)
+    (primcall ppr se* ...) => (ppr se* ...)
+    (if p0 p1 p2)
+    (begin e* ... p)
+    (let ([x* v*] ...) p)
+    )
+  )
+
+(define-pass recognize-context : L16 (ir) -> L17 ()
+  (Value : Expr (e) -> Value ()
+    [(primcall ,pr ,[se*] ...)
+     (guard (value-prim? pr))
+     `(primcall ,pr ,se* ...)]
+    [(primcall ,pr ,[se*] ...)
+     (guard (pred-prim? pr))
+     `(if (primcall ,pr ,se* ...) (true) (false))]
+    [(primcall ,pr ,[se*] ...)
+     (guard (effect-prim? pr))
+     `(begin (primcall ,pr ,se* ...) (void))]
+    )
+  (Effect : Expr (e) -> Effect ()
+    [(primcall ,pr ,[se*] ...)
+     (guard (or (value-prim? pr) (pred-prim? pr)))
+     `(nop)]
+    [(primcall ,pr ,[se*] ...)
+     (guard (effect-prim? pr))
+     `(primcall ,pr ,se* ...)]
+    [,se `(nop)]
+    )
+  (Pred : Expr (e) -> Pred ()
+    [,se
+     `(if (primcall eq? ,se '#f)
+          (false)
+          (true))]
+    [(quote ,c) (if c `(true) `(false))]
+    [(if ,[p0] ,[p1] ,[p2])
+     (nanopass-case (L17 Pred) p0
+       [(true) p1]
+       [(false) p2]
+       [else `(if ,p0 ,p1 ,p2)])]
+    [(,[se] ,[se*] ...)
+     (let ([t (gensym)])
+       `(let ([,t (,se ,se* ...)])
+          (if ,t (true) (false))))]
+    [(primcall ,pr ,[se*] ...)
+     (guard (pred-prim? pr))
+     `(primcall ,pr ,se* ...)]
+    [(primcall ,pr ,[se*] ...)
+     (guard (effect-prim? pr))
+     `(begin (primcall ,pr ,se* ...) (true))]
+    [(primcall ,pr ,[se*] ...)
+     (guard (value-prim? pr))
+     (let ([t (gensym)])
+       `(let ([,t (primcall ,pr ,se* ...)])
+          (if (primcall eq? ,t #f) (false) (true))))]
+  ))
+
 
 (define convert 
   (lambda (sexp)
@@ -786,11 +915,12 @@
               (,expose-clo-prims . unparse-L14)
               (,lift-lambdas . unparse-L15)
               (,remove-complex-opera* . unparse-L16)
+              (,recognize-context . unparse-L17)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L16 ir)
+            (unparse-L17 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
