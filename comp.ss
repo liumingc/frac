@@ -789,6 +789,7 @@
 (define pred-prim-tbl
   '((null? . 1)
     (pair? . 1)
+    (eq? . 2)
     (= . 2)
     (< . 2)
     (> . 2)))
@@ -854,6 +855,11 @@
     [(primcall ,pr ,[se*] ...)
      (guard (effect-prim? pr))
      `(begin (primcall ,pr ,se* ...) (void))]
+    [(if ,[p0] ,[v1] ,[v2])
+     (nanopass-case (L17 Pred) p0
+       [(true) v1]
+       [(false) v2]
+       [else `(if ,p0 ,v1 ,v2)])]
     )
   (Effect : Expr (e) -> Effect ()
     [(primcall ,pr ,[se*] ...)
@@ -865,11 +871,11 @@
     [,se `(nop)]
     )
   (Pred : Expr (e) -> Pred ()
+    [(quote ,c) (if c `(true) `(false))]
     [,se
      `(if (primcall eq? ,se '#f)
           (false)
           (true))]
-    [(quote ,c) (if c `(true) `(false))]
     [(if ,[p0] ,[p1] ,[p2])
      (nanopass-case (L17 Pred) p0
        [(true) p1]
@@ -889,7 +895,7 @@
      (guard (value-prim? pr))
      (let ([t (gensym)])
        `(let ([,t (primcall ,pr ,se* ...)])
-          (if (primcall eq? ,t #f) (false) (true))))]
+          (if (primcall eq? ,t '#f) (false) (true))))]
   ))
 
 
