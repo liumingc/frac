@@ -899,6 +899,43 @@
   ))
 
 
+(define i64?
+  (lambda (x)
+    (and (number? x)
+         (<= (- (expt 2 63)) x)
+         (< x (expt 2 63)))))
+
+(define-language L18
+  (extends L17)
+  (terminals
+    (+ (i64 (i))))
+  (Value (v body)
+    (+ (alloc i se))))
+
+(define fixnum-tag #b000)
+(define pair-tag #b001)
+(define closure-tag #b100)
+
+(trace-define-pass expose-alloc-primitives : L17 (ir) -> L18 ()
+  (Value : Value (e) -> Value ()
+    [(primcall ,vpr ,[se1] ,[se2])
+     (guard (eq? vpr 'cons))
+     (let ([t1 (gensym)] [t2 (gensym)] [t3 (gensym)])
+       `(let ([,t1 (alloc ,pair-tag '2)]
+              [,t2 ,se1]
+              [,t3 ,se2])
+          (begin
+            (primcall set-car! ,t1 ,t2)
+            (primcall set-cdr! ,t1 ,t3)
+            t1)))]
+    [(primcall ,vpr ,[se])
+     (guard (eq? vpr 'make-clo))
+     ;(printf "input:~s, c:~s~%" (pretty-print (unparse-L17 e)) (pretty-print (unparse-L17 se)))
+     (let ([n (nanopass-case (L18 SimpleExpr) se
+                [(quote ,c) c])])
+       `(alloc ,closure-tag (quote ,(+ n 1))))]))
+        
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -922,11 +959,12 @@
               (,lift-lambdas . unparse-L15)
               (,remove-complex-opera* . unparse-L16)
               (,recognize-context . unparse-L17)
+              (,expose-alloc-primitives . unparse-L18)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L17 ir)
+            (unparse-L18 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
