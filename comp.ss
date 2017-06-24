@@ -916,7 +916,7 @@
 (define pair-tag #b001)
 (define closure-tag #b100)
 
-(trace-define-pass expose-alloc-primitives : L17 (ir) -> L18 ()
+(define-pass expose-alloc-primitives : L17 (ir) -> L18 ()
   (Value : Value (e) -> Value ()
     [(primcall ,vpr ,[se1] ,[se2])
      (guard (eq? vpr 'cons))
@@ -927,14 +927,89 @@
           (begin
             (primcall set-car! ,t1 ,t2)
             (primcall set-cdr! ,t1 ,t3)
-            t1)))]
+            ,t1)))]
     [(primcall ,vpr ,[se])
      (guard (eq? vpr 'make-clo))
      ;(printf "input:~s, c:~s~%" (pretty-print (unparse-L17 e)) (pretty-print (unparse-L17 se)))
      (let ([n (nanopass-case (L18 SimpleExpr) se
                 [(quote ,c) c])])
        `(alloc ,closure-tag (quote ,(+ n 1))))]))
-        
+
+(define-language L19
+  (extends L18)
+  (LambdaExpr (le)
+    (- (lambda (x* ...) body))
+    (+ (lambda (x* ...) lbody)))
+  (LocalsBody (lbody)
+    (+ (local (x* ...) body)))
+  (Value (v body)
+    (- (let ([x* v*] ...) v)))
+  (Effect (e)
+    (- (let ([x* v*] ...) e))
+    (+ (set! x v)))
+  (Pred (p)
+    (- (let ([x* v*] ...) p))))
+
+(trace-define-pass return-of-set! : L18 (ir) -> L19 ()
+  #;
+  (definitions
+    (define build-set!
+      (lambda (x* v* body build-begin)
+        (with-output-language (L19 Effect)
+          (build-begin
+            (map (lambda (x v) `(set! ,x ,v)) x* v*)
+            body)))))
+  (LambdaExpr : LambdaExpr (le) -> LambdaExpr ()
+    ; l for local
+    [(lambda (,x* ...) ,[body l*])
+      `(lambda (,x* ...)
+         (local (,l* ...) ,body))])
+  (Value : Value (e) -> Value ('())
+    [(let ([,x* ,[v* l1**]] ...)
+       ,(v l2*))
+     (let ([out-l* (apply append x* l2* l1**)])
+       (values
+         `(begin (set! ,x* ,v*) ... ,v)
+         out-l*))]
+    [(,(se l*) ,(se* l**) ...)
+     (values `(,se ,se* ...) (apply append l* l**))]
+    [(primcall ,vpr ,(se* l**) ...)
+     (values `(primcall ,vpr ,se* ...) (apply append l**))]
+    [(if ,(p0 l0*) ,(v1 l1*) ,(v2 l2*))
+     (values `(if ,p0 ,v1 ,v2) (append l0* l1* l2*))]
+    [(begin ,(e* l**) ... ,(v l*))
+     (values `(begin ,e* ... ,v) (apply append l* l**))]
+    )
+  (SimpleExpr : SimpleExpr (se) -> SimpleExpr ('()))
+  (Effect : Effect (e)  -> Effect ('())
+    [(let ([,x* ,[v* l1**]] ...)
+       ,(e l*))
+     (let ([out-l* (apply append x* l* l1**)])
+       (values
+         `(begin (set! ,x* ,v*) ... ,e)
+         out-l*))]
+    [(primcall ,epr ,(se* l**) ...)
+     (values `(primcall ,epr ,se* ...) (apply append l**))]
+    [(if ,(p0 l0*) ,(e1 l1*) ,(e2 l2*))
+     (values `(if ,p0 ,e1 ,e2) (append l0* l1* l2*))]
+    [(begin ,(e* l**) ... ,(e l*))
+     (values `(begin ,e* ... ,e) (apply append l* l**))]
+    )
+  (Pred : Pred (e) -> Pred ('())
+    [(let ([,x* ,[v* l1**]] ...)
+       ,(p l1*))
+     (let ([out-l* (apply append x* l1* l1**)])
+       (values
+         `(begin (set! ,x* ,v*) ... ,p)
+         out-l*))]
+    [(primcall ,ppr ,(se* l**) ...)
+     (values `(primcall ,ppr ,se* ...) (apply append l**))]
+    [(if ,(p0 l0*) ,(p1 l1*) ,(p2 l2*))
+     (values `(if ,p0 ,p1 ,p2) (append l0* l1* l2*))]
+    [(begin ,(e* l**) ... ,(p l*))
+     (values `(begin ,e* ... ,p) (apply append l* l**))]
+    )
+  )
 
 (define convert 
   (lambda (sexp)
@@ -960,11 +1035,12 @@
               (,remove-complex-opera* . unparse-L16)
               (,recognize-context . unparse-L17)
               (,expose-alloc-primitives . unparse-L18)
+              (,return-of-set! . unparse-L19)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L18 ir)
+            (unparse-L19 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
