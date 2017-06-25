@@ -950,7 +950,7 @@
   (Pred (p)
     (- (let ([x* v*] ...) p))))
 
-(trace-define-pass return-of-set! : L18 (ir) -> L19 ()
+(define-pass return-of-set! : L18 (ir) -> L19 ()
   #;
   (definitions
     (define build-set!
@@ -1011,6 +1011,43 @@
     )
   )
 
+(define-language L20
+  (extends L19)
+  (Value (v body)
+    (- (alloc i se)
+       se
+       (se se* ...)
+       (primcall vpr se* ...))
+    (+ rhs))
+  (Rhs (rhs)
+    (+ (alloc i se)
+       se
+       (se se* ...)
+       (primcall vpr se* ...) => (vpr se* ...)
+       ))
+  (Effect (e)
+    (- (set! x v))
+    (+ (set! x rhs))))
+
+;;;
+(define-pass flatten-set! : L19 (ir) -> L20 ()
+  (SimpleExpr : SimpleExpr (se) -> SimpleExpr ())
+
+  (Effect : Effect (e) -> Effect ()
+    [(set! ,x ,v)
+     (flatten v x)])
+  (flatten : Value (e x) -> Effect ()
+    [(alloc ,i ,[se])
+      `(set! ,x (alloc ,i ,se))]
+    [,se `(set! ,x ,(SimpleExpr se))]
+    [(,[se] ,[se*] ...) `(set! ,x (,se ,se* ...))]
+    [(primcall ,vpr ,[se*] ...) `(set! ,x (primcall ,vpr ,se* ...))]
+    ; the next line is not necessary, but to illustrated the auto generate pass
+    ; code
+    [(if ,[p0] ,[flatten : v1 x -> e1] ,[e2])
+     `(if ,p0 ,e1 ,e2)]
+    ))
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -1036,11 +1073,12 @@
               (,recognize-context . unparse-L17)
               (,expose-alloc-primitives . unparse-L18)
               (,return-of-set! . unparse-L19)
+              (,flatten-set! . unparse-L20)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L19 ir)
+            (unparse-L20 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
@@ -1123,6 +1161,13 @@
             (bar 1)
             (reset)
             n)))
+
+  (run '(let ([x (let ([y 3]
+                       [z 4])
+                   (+ y z))]
+              [m (let ([n 5])
+                   (+ n 6))])
+          (* x m)))
 
 
   )
