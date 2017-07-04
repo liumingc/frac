@@ -47,7 +47,9 @@
     (% . 2)
     (= . 2)
     (< . 2)
+    (<= . 2)
     (> . 2)
+    (>= . 2)
     (cons . 2)
     (car . 1)
     (cdr . 1)
@@ -792,7 +794,10 @@
     (eq? . 2)
     (= . 2)
     (< . 2)
-    (> . 2)))
+    (<= . 2)
+    (> . 2)
+    (>= . 2)
+    ))
 
 (define effect-prim?
   (lambda (x)
@@ -914,7 +919,15 @@
 
 (define fixnum-tag #b000)
 (define pair-tag #b001)
-(define closure-tag #b100)
+(define closure-tag   #b100)
+(define boolean-tag   #b1101)
+(define true-rep    #b111101)
+(define false-rep   #b101101)
+(define null-rep    #b100101)
+(define void-rep    #b110101)
+(define type-mask   #b111)
+(define word-size   8)
+
 
 (define-pass expose-alloc-primitives : L17 (ir) -> L18 ()
   (Value : Value (e) -> Value ()
@@ -1048,6 +1061,101 @@
      `(if ,p0 ,e1 ,e2)]
     ))
 
+(define-language L21
+  (extends L20)
+  (terminals
+    (- (const (c))))
+  (SimpleExpr (se)
+    (- (quote c))
+    (+ i)))
+
+(define-pass convert-const-representation : L20 (ir) -> L21 ()
+  (SimpleExpr : SimpleExpr (se) -> SimpleExpr ()
+    [(quote ,c)
+     (cond
+       [(eq? c #f) false-rep]
+       [(eq? c #t) true-rep]
+       [(null? c) null-rep]
+       [(i64? c) (bitwise-arithmetic-shift-left c 3)])]))
+
+(define-language L22
+  (extends L21)
+  (Effect (e)
+    (- (primcall epr se* ...))
+    (+ (mset! se0 (maybe se1?) i se2)))
+  (Pred (p)
+    (- (primcall ppr se* ...))
+    (+ (= se0 se1)
+       (< se0 se1)
+       (<= se0 se1)))
+  (Rhs (rhs)
+    (- (primcall vpr se* ...)))
+  (SimpleExpr (se)
+    (+ (mref se0 (maybe se1?) i)
+       (add se0 se1)
+       (sub se0 se1)
+       (mul se0 se1)
+       (div se0 se1)
+       (sl se0 se1)
+       (sr se0 se1)
+       (logand se0 se1))))
+
+(trace-define-pass expand-primitives : L21 (ir) -> L22 ()
+  (Pred : Pred (p) -> Pred ()
+    ;;; note: you can write 
+    ;;; (primcall null? se0)
+    [(primcall ,ppr ,[se0])
+     (case ppr
+       [(null?) `(= ,se0 ,null-rep)]
+       [(pair?) `(= (logand ,se0 ,type-mask) ,pair-tag)])]
+    [(primcall ,ppr ,[se0] ,[se1])
+     (case ppr
+       [(eq?) `(= ,se0 ,se1)]
+       [(=) `(= ,se0 ,se1)]
+       [(<) `(< ,se0 ,se1)]
+       [(<=) `(<= ,se0 ,se1)]
+       [(>) `(<= ,se1 ,se0)]
+       [(>=) `(< ,se1 ,se0)])]
+    )
+
+  (Effect : Effect (e) -> Effect ()
+    [(primcall ,epr ,[se0] ,[se1])
+     (case epr
+       [(set-car!) `(mset! ,se0 #f ,(- pair-tag) ,se1)]
+       [(set-cdr!) `(mset! ,se0 #f ,(- word-size pair-tag) ,se1)]
+       [(clo-code-set!) `(mset! ,se0 #f ,(- closeure-tag) ,se1)]
+       )]
+    [(primcall ,epr ,[se0] ,[se1] ,[se2])
+     ;;; clo-data-set!
+     `(mset! ,se0 ,se1 ,(- word-size closure-tag) se2)])
+
+  (Rhs : Rhs (rhs) -> Rhs ()
+    (definitions
+      (define convert-op
+        (let ([tbl '((+ . add) (- . sub)
+                     (* . mul) (/ . div))])
+          (lambda (x)
+            (let ([t (assq x tbl)])
+              (if t (cdr t) t))))))
+    [(primcall ,vpr ,[se0] ,[se1])
+     (case vpr
+       [(+ - * / %)
+        `(,(convert-op vpr) ,se0 ,se1)]
+       [(clo--data)
+        `(mref ,se0 ,se1 ,(- word-size closure-tag))]
+       )]
+    [(primcall ,vpr ,[se0])
+     (case vpr
+       [(car) `(mref ,se0 #f ,(- pair-tag))]
+       [(cdr) `(mref ,se0 #f ,(- word-size pair-tag))]
+       [clo-code `(mref ,se0 #f ,(- closure-tag))])]
+    [(primcall ,vpr)
+     ;(guard (eq? vpr 'void))
+     void-rep]
+    )
+  
+  )
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -1074,11 +1182,13 @@
               (,expose-alloc-primitives . unparse-L18)
               (,return-of-set! . unparse-L19)
               (,flatten-set! . unparse-L20)
+              (,convert-const-representation . unparse-L21)
+              (,expand-primitives . unparse-L22)
               )
             ])
       (let f ([passes passes] [ir sexp])
         (if (null? passes)
-            (unparse-L20 ir)
+            (unparse-L22 ir)
             (let ([pass (car passes)])
               (let ([ir ((car pass) ir)])
                 (if debug-pass
