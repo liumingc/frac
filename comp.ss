@@ -859,7 +859,7 @@
      `(if (primcall ,pr ,se* ...) (true) (false))]
     [(primcall ,pr ,[se*] ...)
      (guard (effect-prim? pr))
-     `(begin (primcall ,pr ,se* ...) (void))]
+     `(begin (primcall ,pr ,se* ...) (primcall void))]
     [(if ,[p0] ,[v1] ,[v2])
      (nanopass-case (L17 Pred) p0
        [(true) v1]
@@ -1102,7 +1102,7 @@
 
 (trace-define-pass expand-primitives : L21 (ir) -> L22 ()
   (Pred : Pred (p) -> Pred ()
-    ;;; note: you can write 
+    ;;; note: you can't write 
     ;;; (primcall null? se0)
     [(primcall ,ppr ,[se0])
      (case ppr
@@ -1123,7 +1123,7 @@
      (case epr
        [(set-car!) `(mset! ,se0 #f ,(- pair-tag) ,se1)]
        [(set-cdr!) `(mset! ,se0 #f ,(- word-size pair-tag) ,se1)]
-       [(clo-code-set!) `(mset! ,se0 #f ,(- closeure-tag) ,se1)]
+       [(clo-code-set!) `(mset! ,se0 #f ,(- closure-tag) ,se1)]
        )]
     [(primcall ,epr ,[se0] ,[se1] ,[se2])
      ;;; clo-data-set!
@@ -1136,12 +1136,12 @@
                      (* . mul) (/ . div))])
           (lambda (x)
             (let ([t (assq x tbl)])
-              (if t (cdr t) t))))))
+              (if t (cdr t) x))))))
     [(primcall ,vpr ,[se0] ,[se1])
      (case vpr
        [(+ - * / %)
         `(,(convert-op vpr) ,se0 ,se1)]
-       [(clo--data)
+       [(clo-data)
         `(mref ,se0 ,se1 ,(- word-size closure-tag))]
        )]
     [(primcall ,vpr ,[se0])
