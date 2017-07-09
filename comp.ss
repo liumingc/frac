@@ -1100,7 +1100,38 @@
        (sr se0 se1)
        (logand se0 se1))))
 
-(trace-define-pass expand-primitives : L21 (ir) -> L22 ()
+(define pretty-format
+  (lambda xs
+    (let ([o (open-output-string)])
+      (for-each (lambda (x)
+                  (pretty-print x o)) xs)
+      (get-output-string o))))
+
+(define-pass expand-primitives : L21 (ir) -> L22 ()
+  (definitions
+    (define build-begin
+      (lambda (e* x f)
+        (let lp ([e* e*] [re* '()])
+          #|
+          (printf "comm-build-begin~% e* is ~a~% re* is ~a~%"
+            (pretty-format (map unparse-L22 e*))
+            (pretty-format (map unparse-L22 re*)))
+          |#
+          (cond
+            [(null? e*)
+             (f re* x)]
+            [else
+             (let ([e (car e*)])
+               ;;; note, here you can't write (begin ,[e0]) etc
+               ;;; otherwise, e is changed, and the matching is wrong
+             (nanopass-case (L22 Effect) e
+               [(begin ,e0)
+                ;(printf "case1~%")
+                (lp (cdr e*) (cons e0 re*))]
+               [(begin ,e0* ... ,e0)
+                (lp (cdr e*) (append (cons e0 (reverse e0*)) re*))]
+               [else
+                (lp (cdr e*) (cons (car e*) re*))]))])))))
   (Pred : Pred (p) -> Pred ()
     ;;; note: you can't write 
     ;;; (primcall null? se0)
@@ -1116,6 +1147,19 @@
        [(<=) `(<= ,se0 ,se1)]
        [(>) `(<= ,se1 ,se0)]
        [(>=) `(< ,se1 ,se0)])]
+
+    [(begin ,[e*] ... ,[p])
+     (build-begin e* p
+       (lambda (re* x)
+         (let f ([re* re*] [x x])
+           (nanopass-case (L22 Pred) x
+             [(begin ,e0* ... ,p0)
+              (f (append (reverse e0*) re*) p0)]
+             [else
+              (if (null? re*)
+                  x
+                  `(begin ,(reverse re*) ... ,x))]))))]
+
     )
 
   (Effect : Effect (e) -> Effect ()
@@ -1127,7 +1171,22 @@
        )]
     [(primcall ,epr ,[se0] ,[se1] ,[se2])
      ;;; clo-data-set!
-     `(mset! ,se0 ,se1 ,(- word-size closure-tag) se2)])
+     `(mset! ,se0 ,se1 ,(- word-size closure-tag) se2)]
+
+    [(begin ,[e0])
+     e0]
+    [(begin ,[e*] ... ,[e])
+     (build-begin e* e
+       (lambda (re* x)
+         (let f ([re* re*] [x x])
+           (nanopass-case (L22 Effect) x
+             [(begin ,e0* ... ,e0)
+              (f (append (reverse e0*) re*) e0)]
+             [else
+              (if (null? re*)
+                  x
+                  `(begin ,(reverse re*) ... ,x))]))))]
+    )
 
   (Rhs : Rhs (rhs) -> Rhs ()
     (definitions
@@ -1152,6 +1211,30 @@
     [(primcall ,vpr)
      ;(guard (eq? vpr 'void))
      void-rep]
+    )
+
+  (Value : Value (v) -> Value ()
+    [(begin ,[e*] ... ,[v])
+     #;
+     (printf "Value->Value input:~% e* is ~a~% v is ~a~%"
+       (pretty-format (map unparse-L22 e*))
+       (pretty-format (unparse-L22 v)))
+     (let ([res
+     (build-begin e* v
+       (lambda (re* x)
+
+         (let f ([re* re*] [x x])
+           (nanopass-case (L22 Value) x
+             [(begin ,e0* ... ,v0)
+              (f (append (reverse e0*) re*) v0)]
+             [else
+              (if (null? re*)
+                  x
+                  `(begin ,(reverse re*) ... ,x))]))))
+     ])
+       ;(printf "Value->Value: output~%~s~%" (unparse-L22 res))
+       res)
+     ]
     )
   
   )
