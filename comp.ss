@@ -764,7 +764,7 @@
          (if (null? x*)
              ans
              `(let ([,x* ,xe*] ...)
-                (,(car ans) ,(cdr e*) ...)
+                (,(car ans) ,(cdr ans) ...)
                 ))))]))
 
 (define effect-prim-tbl
@@ -1112,25 +1112,27 @@
     (define build-begin
       (lambda (e* x f)
         (let lp ([e* e*] [re* '()])
-          #|
+          #;
           (printf "comm-build-begin~% e* is ~a~% re* is ~a~%"
             (pretty-format (map unparse-L22 e*))
             (pretty-format (map unparse-L22 re*)))
-          |#
           (cond
             [(null? e*)
              (f re* x)]
             [else
              (let ([e (car e*)])
                ;;; note, here you can't write (begin ,[e0]) etc
-               ;;; otherwise, e is changed, and the matching is wrong
+               ;(printf "one! ~a~%" e)
+               ;(printf "one ~a~%" (pretty-format (unparse-L22 e)))
              (nanopass-case (L22 Effect) e
                [(begin ,e0)
-                ;(printf "case1~%")
+                 ;(printf "case e0~%")
                 (lp (cdr e*) (cons e0 re*))]
                [(begin ,e0* ... ,e0)
+                 ;(printf "case e0* e0~%")
                 (lp (cdr e*) (append (cons e0 (reverse e0*)) re*))]
                [else
+                 ;(printf "case else~%")
                 (lp (cdr e*) (cons (car e*) re*))]))])))))
   (Pred : Pred (p) -> Pred ()
     ;;; note: you can't write 
@@ -1176,6 +1178,10 @@
     [(begin ,[e0])
      e0]
     [(begin ,[e*] ... ,[e])
+     #;
+     (printf "Effect->Effect: input is e*=~a~% e=~a~%"
+       (pretty-format (map unparse-L22 e*))
+       (pretty-format e))
      (build-begin e* e
        (lambda (re* x)
          (let f ([re* re*] [x x])
