@@ -1245,6 +1245,97 @@
   
   )
 
+(trace-define-pass generate-c : L22 (ir) -> * ()
+  (definitions
+    (define emit-multi-str
+      (lambda xs
+        (for-each
+          (lambda (x)
+            (printf x)) xs)))
+    (define emit-header
+      (lambda ()
+        (emit-multi-str
+          "#include <stdio.h>\n"
+          "#include <string.h>\n"
+          "#include <stdlib.h>\n"
+          "typedef long* ptr;\n"
+          )))
+    (define id->c
+      (lambda (id)
+        (list->string
+          (map (lambda (c)
+                 (case c
+                   [(#\- #\! #\? #\$ #\* #\. #\:) #\_]
+                   [else c]))
+            (string->list (symbol->string id))))))
+    (define emit-func-decl
+      (lambda (l le)
+        (nanopass-case (L22 LambdaExpr) le
+          [(lambda (,x* ...) ,lbody)
+           (printf "ptr ~a(~a);\n" (id->c l)
+             (string-join (map (lambda (x) "ptr") x*) ", "))])))
+    (define emit-func-def
+      (lambda (l le)
+        (nanopass-case (L22 LambdaExpr) le
+          [(lambda (,x* ...) (local (,x1* ...) ,body))
+            (printf "ptr ~a(~a) {\n" (id->c l)
+              (string-join (map (lambda (x) (format "ptr ~a" x)) x*) ", "))
+            ;;; local vars
+            (printf "ptr ~a;\n"
+              (string-join (map (lambda (x) (format "~a" x)) x1*) ", "))
+            (Value body)
+
+            (printf "}\n")])))
+    (define string-join
+      (lambda (xs j)
+        (cond
+          [(null? xs) ""]
+          [(null? (cdr xs)) (car xs)]
+          [else (string-append (car xs) j (string-join (cdr xs) j))])))
+    )
+
+  (Program : Program (ir) -> * ()
+    [(labels ([,l* ,le*] ...) ,l)
+     (emit-header)
+     (map emit-func-decl l* le*)
+     (map emit-func-def l* le*)])
+
+  (Value : Value (ir) -> * ()
+    [(if ,p0 ,v1 ,v2)
+     (printf "")]
+    [(begin ,e* ... ,v)
+     (for-each (lambda (e)
+                 (emit-effect e)) e*)
+     (Value v)]
+    [,rhs
+     (printf "return ~a;\n" (format-rhs rhs))]
+    )
+
+  (emit-effect : Effect (ir) -> * ()
+    [(mset! ,se0 ,se1 ,i ,se2)
+     (printf "todo")]
+    [(set! ,x ,rhs)
+     (printf "~a = ~a;\n" (id->c x) (format-rhs rhs))]
+    [(nop) (printf "")]
+    [(if ,p0 ,e1 ,e2) (printf "")]
+    [(begin ,e* ... ,e) (printf "")]
+    [(,se ,se* ...) (printf "")])
+
+  (format-rhs : Rhs (ir) -> * ()
+    [(alloc ,i ,se)
+     (format "(ptr)(malloc(~a) + ~a)" se i)]
+    [,se
+     (format "~a" (format-se se))]
+    [(,se ,se* ...)
+     (format "todo ")]
+    )
+
+  (format-se : SimpleExpr (se) -> * ()
+    [,i (format "~a" i)]
+    [else (format "todo")])
+
+  )
+
 (define convert 
   (lambda (sexp)
     (let ([passes 
@@ -1289,6 +1380,7 @@
 
 
 
+#|
 (define run
   (lambda (x)
     (let ([x (convert x)])
@@ -1296,6 +1388,14 @@
       x
       (pretty-print x)
 )))
+|#
+
+(define-parser parse-L22 L22)
+(define run
+  (lambda (x)
+    (let ([x (parse-L22 (convert x))])
+      (generate-c x))))
+
 
 ;;; do some test
 (let ()
