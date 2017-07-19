@@ -1292,6 +1292,10 @@
           [(null? xs) ""]
           [(null? (cdr xs)) (car xs)]
           [else (string-append (car xs) j (string-join (cdr xs) j))])))
+
+    (define format-binop
+      (lambda (op se1 se2)
+        (format "(~a) ~a (~a)" (format-se se1) op (format-se se2))))
     )
 
   (Program : Program (ir) -> * ()
@@ -1302,7 +1306,12 @@
 
   (Value : Value (ir) -> * ()
     [(if ,p0 ,v1 ,v2)
-     (printf "")]
+     (printf "if(~a) {\n" (format-pred p0))
+     (Value v1)
+     (printf "} else {\n")
+     (Value v2)
+     (printf"}\n")]
+
     [(begin ,e* ... ,v)
      (for-each (lambda (e)
                  (emit-effect e)) e*)
@@ -1310,6 +1319,25 @@
     [,rhs
      (printf "return ~a;\n" (format-rhs rhs))]
     )
+
+  (format-pred : Pred (ir) -> * ()
+    [(<= ,se0 ,se1)
+     (format-binop "<=" se0 se1)]
+    [(< ,se0 ,se1)
+     (format-binop "<" se0 se1)]
+    [(= ,se0 ,se1)
+     (format-binop "==" se0 se1)]
+    [(true)
+     (format "~a" true-rep)]
+    [(false)
+     (format "~a" false-rep)]
+    [(if ,p0 ,p1 ,p2)
+     (format "(~a)?(~a):(~a)" p0 p1 p2)]
+    [(begin ,e* ... ,p)
+     (printf "~a, ~a"
+     (string-join (map (lambda (e)
+                         (format-effect e)) e*) ",")
+     (foramt-pred p))])
 
   (emit-effect : Effect (ir) -> * ()
     [(mset! ,se0 ,se1 ,i ,se2)
@@ -1320,6 +1348,15 @@
     [(if ,p0 ,e1 ,e2) (printf "")]
     [(begin ,e* ... ,e) (printf "")]
     [(,se ,se* ...) (printf "")])
+  (format-effect : Effect (ir) -> * ()
+    [(mset! ,se0 ,se1 ,i ,se2)
+     (format "todo")]
+    [(set! ,x ,rhs)
+     (format "~a = ~a;\n" (id->c x) (format-rhs rhs))]
+    [(nop) (printf "")]
+    [(if ,p0 ,e1 ,e2) (format "")]
+    [(begin ,e* ... ,e) (format "")]
+    [(,se ,se* ...) (format "")])
 
   (format-rhs : Rhs (ir) -> * ()
     [(alloc ,i ,se)
@@ -1332,6 +1369,22 @@
 
   (format-se : SimpleExpr (se) -> * ()
     [,i (format "~a" i)]
+    [(logand ,se0 ,se1)
+     (format-binop "|" se0 se1)]
+    [(sr ,se0 ,se1)
+     (format-binop ">>" se0 se1)]
+    [(sl ,se0 ,se1)
+     (format-binop "<<" se0 se1)]
+    [(add ,se0 ,se1)
+     (format-binop "+" se0 se1)]
+    [(sub ,se0 ,se1)
+     (format-binop "-" se0 se1)]
+    [(mul ,se0 ,se1)
+     (format-binop "*" se0 se1)]
+    [(div ,se0 ,se1)
+     (format-binop "/" se0 se1)]
+    [,x
+     (format "~a" (id->c x))]
     [else (format "todo")])
 
   )
