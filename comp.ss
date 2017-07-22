@@ -1173,7 +1173,7 @@
        )]
     [(primcall ,epr ,[se0] ,[se1] ,[se2])
      ;;; clo-data-set!
-     `(mset! ,se0 ,se1 ,(- word-size closure-tag) se2)]
+     `(mset! ,se0 ,se1 ,(- word-size closure-tag) ,se2)]
 
     [(begin ,[e0])
      e0]
@@ -1245,7 +1245,7 @@
   
   )
 
-(trace-define-pass generate-c : L22 (ir) -> * ()
+(define-pass generate-c : L22 (ir) -> * ()
   (definitions
     (define emit-multi-str
       (lambda xs
@@ -1295,7 +1295,14 @@
 
     (define format-binop
       (lambda (op se1 se2)
-        (format "(~a) ~a (~a)" (format-se se1) op (format-se se2))))
+        (format "(long)~a ~a (long)~a" (format-se se1) op (format-se se2))))
+
+    (define format-gen-call
+      (lambda (se se*)
+        (format "((ptr(*)(~a))~a) (~a)"
+          (string-join (map (lambda (se) "ptr") se*) ", ")
+          (format-se se)
+          (string-join (map (lambda (se) (format-se se)) se*) ", "))))
     )
 
   (Program : Program (ir) -> * ()
@@ -1340,8 +1347,11 @@
      (foramt-pred p))])
 
   (emit-effect : Effect (ir) -> * ()
-    [(mset! ,se0 ,se1 ,i ,se2)
-     (printf "todo")]
+    [(mset! ,se0 ,se1? ,i ,se2)
+     (if se1?
+         (printf "*(ptr*)((long)~a +  (long)~a + (~a)) = (ptr)~a;\n"
+           (format-se se0) (format-se se1?) i (format-se se2))
+         (printf "*(ptr*)((long)~a + (~a)) = (ptr)~a;\n" (format-se se0) i (format-se se2)))]
     [(set! ,x ,rhs)
      (printf "~a = ~a;\n" (id->c x) (format-rhs rhs))]
     [(nop) (printf "")]
@@ -1349,13 +1359,18 @@
     [(begin ,e* ... ,e) (printf "")]
     [(,se ,se* ...) (printf "")])
   (format-effect : Effect (ir) -> * ()
-    [(mset! ,se0 ,se1 ,i ,se2)
-     (format "todo")]
+    [(mset! ,se0 ,se1? ,i ,se2)
+     (if se1?
+         (format "*(ptr*)((long)~a +  (long)~a + ~a) = (ptr)~a;\n"
+           (format-se se0) (format-se se1?) i (format-se se2))
+         (format "*(ptr*)((long)~a + ~a) = (ptr)~a;\n" (format-se se0) i (format-se se2)))]
     [(set! ,x ,rhs)
      (format "~a = ~a;\n" (id->c x) (format-rhs rhs))]
-    [(nop) (printf "")]
+    [(nop) ""]
     [(if ,p0 ,e1 ,e2) (format "")]
     [(begin ,e* ... ,e) (format "")]
+    [(,se ,se* ...)
+     (format-gen-call se se*)]
     [(,se ,se* ...) (format "")])
 
   (format-rhs : Rhs (ir) -> * ()
@@ -1364,11 +1379,14 @@
     [,se
      (format "~a" (format-se se))]
     [(,se ,se* ...)
-     (format "todo ")]
+     (format-gen-call se se*)]
     )
 
   (format-se : SimpleExpr (se) -> * ()
-    [,i (format "~a" i)]
+    [,i
+     (if (< i 0)
+         (format "(~a)" i)
+         (format "~a" i))]
     [(logand ,se0 ,se1)
      (format-binop "|" se0 se1)]
     [(sr ,se0 ,se1)
@@ -1385,6 +1403,11 @@
      (format-binop "/" se0 se1)]
     [,x
      (format "~a" (id->c x))]
+    [(mref ,se0 ,se1? ,i)
+     (if se1?
+         (format "*(ptr*)((long)~a + (long)~a + (~a))"
+           se0 se1? i)
+         (format "*(ptr*)((long)~a + (~a))" se0 i))]
     [else (format "todo")])
 
   )
@@ -1520,6 +1543,12 @@
               [m (let ([n 5])
                    (+ n 6))])
           (* x m)))
+
+  (run '(letrec ([fib (lambda (x)
+                        (if (< x 2) 1
+                            (+ (fib (- n 1))
+                               (fib (- n 2)))))])
+          (fib 6)))
 
 
   )
