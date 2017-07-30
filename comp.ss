@@ -115,12 +115,13 @@
           `(let ([,nx* ,e*] ...)
              ,body* ...
              ,(Expr body r))))]
-    [(letrec ([,x* ,[e* r -> e*]] ...) ,[body* r -> body*] ... ,body)
-      (let ([nx* (map (lambda (x) (gensym x)) x*)])
-        (let ([r (extend* x* nx* r)])
-          `(letrec ([,nx* ,e*] ...)
-             ,body* ...
-             ,(Expr body r))))]
+    [(letrec ([,x* ,e*] ...) ,body* ... ,body)
+     (let ([nx* (map (lambda (x) (gensym x)) x*)])
+       (let ([nr (extend* x* nx* r)])
+         (let ([e* (map (lambda (e) (Expr e nr)) e*)]
+               [body* (map (lambda (b) (Expr b nr)) body*)]
+               [body (Expr body nr)])
+           `(letrec ([,nx* ,e*] ...) ,body* ... ,body))))]
     [(set! ,x ,[e])
      (let ([ans (assq x r)])
        (if ans
@@ -557,11 +558,11 @@
     [(let ([,x* ,[e* f**]] ...) ,[body f*])
      (values
        `(let ([,x* ,e*] ...) ,body)
-       (set:diff (apply set:union (cons f* f**)) x*))]
+       (apply set:union (set:diff f* x*) f**))]
     [(letrec ([,x* ,[le* f**]] ...) ,[body f*])
      (values
        `(letrec ([,x* ,le*] ...) ,body)
-       (set:diff (apply set:union (cons f* f**)) x*))]
+       (set:diff (apply set:union f* f**) x*))]
     [(primcall ,pr ,[e* f**] ...)
      (values `(primcall ,pr ,e* ...) (apply set:union f**))]
     [(quote ,c) (values `(quote ,c) '())]
@@ -1546,8 +1547,8 @@
 
   (run '(letrec ([fib (lambda (x)
                         (if (< x 2) 1
-                            (+ (fib (- n 1))
-                               (fib (- n 2)))))])
+                            (+ (fib (- x 1))
+                               (fib (- x 2)))))])
           (fib 6)))
 
 

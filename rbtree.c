@@ -255,15 +255,15 @@ void rbt_delete_fixup(RBT *tree, Node *x)
 			if(w->color == RED) {
 				x->parent->color = RED;
 				w->color = BLACK;
-				rbt_left_rotate(tree, x->parent);
+				rbt_right_rotate(tree, x->parent);
 			} else {
-				if(isblack(w->left) && isblack(w->left)) {
+				if(isblack(w->right) && isblack(w->left)) {
 					w->color = RED;
 					x = x->parent;
 				} else {
 					if(isblack(w->left)) {
 						w->color = RED;
-						w->left->color = BLACK;
+						w->right->color = BLACK;
 						rbt_left_rotate(tree, w);
 						w = x->parent->left;
 					}
