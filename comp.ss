@@ -248,6 +248,7 @@
 
 (define-pass quote-const : L5 (ir) -> L6 ()
   (Proc : Expr (ir) -> Expr ()
+    [',c `(quote ,c)]
     [,c `(quote ,c)]))
 
 ;;; remove complex quote
@@ -1255,12 +1256,79 @@
             (printf x)) xs)))
     (define emit-header
       (lambda ()
-        (emit-multi-str
-          "#include <stdio.h>\n"
-          "#include <string.h>\n"
-          "#include <stdlib.h>\n"
-          "typedef long* ptr;\n"
+        (printf
+"#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#define TAG(x)  (((long)x)&7)
+#define FIXNUMP(x)  (TAG(x)==0)
+#define PAIRP(x)  (TAG(x)==1)
+#define CLOSUREP(x) (TAG(x)==4)
+#define TRUEP(x)  ((long)x==~a)
+#define FALSEP(x) ((long)x==~a)
+#define VOIDP(x)  ((long)x==~a)
+#define NULLP(x)  ((long)x==~a)
+#define CAR(x)  (*(ptr*)((long)x-1))
+#define CDR(x)  (*(ptr*)((long)x+7))
+
+typedef long* ptr;
+"
+        true-rep
+        false-rep
+        void-rep
+        null-rep
           )))
+    (define emit-common_func
+      (lambda ()
+        (emit-multi-str
+"
+void print_value(ptr x);
+void print_value(ptr x) {
+  if(FIXNUMP(x)) {
+    printf(\"%lu\", ((long)x) >> 3);
+  } else if(TRUEP(x)) {
+    printf(\"#t\");
+  } else if(FALSEP(x)) {
+    printf(\"#f\");
+  } else if(CLOSUREP(x)) {
+    printf(\"#<proc>\");
+  } else if(NULLP(x)) {
+    printf(\"()\");
+  } else if(VOIDP(x)) {
+    printf(\"(void)\");
+  } else if(PAIRP(x)) {
+    printf(\"(\");
+    print_value(CAR(x));
+    ptr cdr = CDR(x);
+    lp:
+    if(NULLP(cdr)) {
+      //printf(\")\");
+    } else if(PAIRP(cdr)) {
+      printf(\" \");
+      print_value(CAR(x));
+      cdr = CDR(cdr);
+      goto lp;
+    } else {
+      printf(\" . \");
+      print_value(cdr);
+    }
+    printf(\")\");
+  } else {
+    //printf(\"#<unknown>\");
+    printf(\"(void)\");
+  }
+}
+"
+          )))
+    (define emit-main
+      (lambda ()
+        (printf
+"int main(int argc, char **argv) {
+  print_value(l_main());
+  printf(\"\\n\");
+  return 0;
+}
+")))
     (define id->c
       (lambda (id)
         (list->string
@@ -1308,9 +1376,27 @@
 
   (Program : Program (ir) -> * ()
     [(labels ([,l* ,le*] ...) ,l)
-     (emit-header)
-     (map emit-func-decl l* le*)
-     (map emit-func-def l* le*)])
+     (let ([filename "test.c"])
+       (if (file-exists? filename)
+           (delete-file filename)))
+     (with-output-to-file "test.c"
+       (lambda ()
+         (emit-header)
+         (emit-common_func)
+         (map emit-func-decl l* le*)
+         (map emit-func-def l* le*)
+         (emit-main)))
+     (let ([lst (process "gcc test.c >/dev/null 2>&1 ; ./a.out")])
+       #;
+       (let f ([line (get-line (car lst))])
+         (if (not (eof-object? line))
+             (begin
+               (printf "-> ~a~%" line)
+               (f (get-line (car lst))))))
+       (let ([ans (read (car lst))])
+         (printf "-> ~a~%" ans))
+       )
+     ])
 
   (Value : Value (ir) -> * ()
     [(if ,p0 ,v1 ,v2)
@@ -1399,9 +1485,13 @@
     [(sub ,se0 ,se1)
      (format-binop "-" se0 se1)]
     [(mul ,se0 ,se1)
-     (format-binop "*" se0 se1)]
+     (format "(((long)(~a) >> 3) * ((long)(~a)))" se0 se1)
+     ;(format-binop "*" (se0 se1)
+     ]
     [(div ,se0 ,se1)
-     (format-binop "/" se0 se1)]
+     ;(format "((long)(~a) / 8) / ((long)(~a)/ 8)" se0 se1)
+     (format-binop "/" se0 se1)
+     ]
     [,x
      (format "~a" (id->c x))]
     [(mref ,se0 ,se1? ,i)
@@ -1553,6 +1643,11 @@
 
 
   )
+
+  (run '(letrec ([frac (lambda (n)
+                         (if (<= n 1) 1
+                             (* n (frac (- n 1)))))])
+          (frac 8)))
 
 #!eof
 
