@@ -215,9 +215,9 @@ struct Rbt
 			return;
 		show1(n->left, depth+1);
 		for(int i=0; i<depth; i++)
-			for(int j=0; j<4; j++)
+			for(int j=0; j<2; j++)
 				printf(" ");
-		printf("%3d%c\n", n->key, n->color==R?'*':' ');
+		printf("%d%c\n", n->key, n->color==R?'*':' ');
 		//printf("%d:%d%c\n", n->key, n->parent?n->parent->key:-1, n->color==R?'*':' ');
 		show1(n->right, depth+1);
 	}
@@ -232,6 +232,76 @@ struct Rbt
 		if(n == 0)
 			return 0;
 		return 1 + count1(n->left) + count1(n->right);
+	}
+
+	void del(int key)
+	{
+		// step 1, no-rebalance yet
+		Node *z = find(key);
+
+		if(z == nil)
+		{
+			printf("warning: key=%d not found\n");
+			return;
+		}
+
+		if(z->left == nil) {
+			transplant(z, z->right);
+		} else if(z->right == nil) {
+			transplant(z, z->left);
+		} else {
+			Node *y = find_min(z->right);
+			Node *x = y->right;
+
+			if(y->parent != z) {
+				transplant(y, x);
+				y->right = z->right;
+				if(z->right)
+					z->right->parent = y;
+				y->color = z->color;
+			}
+			transplant(z, y);
+			y->left = z->left;
+			if(z->left)
+				z->left->parent = y;
+		}
+	}
+
+	void transplant(Node *x, Node *y) {
+		if(x->parent == nil) {
+			root = y;
+		} else {
+			if(x == x->parent->left)
+				x->parent->left = y;
+			else
+				x->parent->right = y;
+		}
+		if(y) {
+			y->parent = x->parent;
+		}
+	}
+
+	Node *find(int key) {
+		Node *z;
+		for(z=root; z; )
+		{
+			if(z->key == key)
+				break;
+			else if(z->key < key)
+				z = z->right;
+			else
+				z = z->left;
+		}
+
+		return z;
+	}
+
+	Node *find_min(Node *z) {
+		while(z->left) {
+			z = z->left;
+		}
+
+		return z;
 	}
 };
 
@@ -250,6 +320,7 @@ int main(int argc, char **argv)
 		printf("============\n\n");
 	}
 	*/
+	/*
 	set<int> coll;
 
 	for(int i=0; i<100; i++)
@@ -259,7 +330,7 @@ int main(int argc, char **argv)
 			continue;
 		coll.insert(r);
 
-		printf("[In%d] === %d ===\n", i, r);
+		printf("[In%d]: === %d ===\n", i, r);
 		rbt->add(r, 1);
 		rbt->show();
 		printf("============\n\n");
@@ -268,6 +339,23 @@ int main(int argc, char **argv)
 			printf("oops!\n");
 			break;
 		}
+	}
+	*/
+	for(int i=0; i<20; i++)
+	{
+		int r = random() % 100;
+
+		rbt->add(r, 1);
+	}
+	rbt->show();
+
+	int r;
+	while(scanf("%d", &r) == 1)
+	{
+		printf("To del: === %d ===\n", r);
+		rbt->del(r);
+		rbt->show();
+		printf("============\n\n");
 	}
 	return 0;
 }
