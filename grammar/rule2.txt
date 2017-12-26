@@ -1,0 +1,20 @@
+%token A
+%token B
+%token C
+%token D
+%token E
+%token G
+%token H
+
+%%
+
+a : A
+  | A b B
+  | c f
+  ;
+
+b : A | ;
+
+c : D | E | ;
+
+f : G | H ;
