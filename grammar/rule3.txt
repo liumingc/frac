@@ -1,0 +1,34 @@
+%token NUM
+%token NAME
+%token (
+%token )
+%token *
+%token /
+%token +
+%token -
+
+%%
+
+goal : expr ;
+expr : term expr' ;
+expr' :
+    + term expr'
+  | - term expr'
+  |
+  ;
+
+term :
+    factor term'
+  ;
+
+term' :
+    * factor term'
+  | / factor term'
+  | 
+  ;
+
+factor :
+    ( expr )
+  | NUM
+  | NAME
+;
