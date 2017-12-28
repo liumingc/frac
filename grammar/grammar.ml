@@ -170,7 +170,7 @@ let build_info toks =
 ;;
 
 
-let print_first_set symtab tbl =
+let print_first symtab =
   Printf.printf "=========\n\n";
   Array.iter (fun sym ->
     let first = sym.first in
@@ -181,7 +181,7 @@ let print_first_set symtab tbl =
   ) symtab
 ;;
 
-let first rules symtab tbl =
+let build_first rules symtab =
   let change = ref false in
   let rec lp () =
     change := false;
@@ -191,7 +191,7 @@ let first rules symtab tbl =
           if !change then
             lp ()
           else
-            print_first_set symtab tbl
+            print_first symtab
       | rule::rules ->
           let lhs = symtab.(rule.lhs) in
           let rhs = List.map (fun x -> symtab.(x)) rule.rhs in
@@ -222,36 +222,88 @@ let first rules symtab tbl =
     lp ()
 ;;
 
+let print_follow symtab =
+  Printf.printf "=========\n\n";
+  Array.iter (fun sym ->
+    let fol = sym.follow in
+    Printf.printf "%s FOLLOW:\n" sym.name;
+    SymSet.iter (fun x ->
+      let name = symtab.(x).name in
+      Printf.printf "\t%s\n" name) fol
+  ) symtab
+;;
+
+let build_follow rules symtab =
+  let start = ref symtab.(0) in
+  begin
+  (
+  match rules with
+  | rule::rules ->
+      start := symtab.(rule.lhs);
+      (!start).follow <- SymSet.(empty |> add 0)
+  | _ -> ignore (failwith "no rules!"));
+  let change = ref true in
+  while !change do
+    change := false;
+    let rec lp_rules rules =
+      match rules with
+      | [] -> ignore () (*print_follow symtab*)
+      | rule::rules ->
+          let rec lp_rhs rhs fol =
+            match rhs with
+            | [] ->
+                lp_rules rules
+            | (x::xs) ->
+                let fol' = SymSet.union x.follow fol in begin
+                (if SymSet.cardinal fol' > SymSet.cardinal x.follow then begin
+                  change := true;
+                  x.follow <- fol'
+                end);
+                (if x.empty then
+                  lp_rhs xs (SymSet.union fol' x.first)
+                else
+                  lp_rhs xs x.first
+                )
+                end
+          in let lhs = symtab.(rule.lhs) in
+          let rhs = List.map (fun x -> symtab.(x)) (List.rev rule.rhs) in
+          lp_rhs rhs lhs.follow
+    in lp_rules rules
+  done;
+  print_follow symtab
+  end
+;;
 
 
 let () =
   let toks = get_tokens () in
   let (rules, symtab, tbl) = build_info toks in
-  first rules symtab tbl
+  build_first rules symtab;
+  build_follow rules symtab
 
-(*
-(* TODO *)
+  (*
+  (* TODO *)
 
 let closure (s : ItemSet.t ref) =
   let changing = ref true in
-  while !changing do
-    Set.iter (fun item ->
-      let rule = List.nth rules item.rule_no in
-      let rhs = rule.rhs in
-      if item.pos < List.length rhs then
-        let x = List.nth rhs item.pos in
-        if Set.mem x noterms then
-          List.iter (fun rule ->
-            if rule.lhs == x then
-              s := 
-        else
-          yyy
+while !changing do
+  Set.iter (fun item ->
+    let rule = List.nth rules item.rule_no in
+let rhs = rule.rhs in
+if item.pos < List.length rhs then
+  let x = List.nth rhs item.pos in
+if Set.mem x noterms then
+  List.iter (fun rule ->
+    if rule.lhs == x then
+      s := 
+              else
+                yyy
   done
 
 let () =
   let toks = get_tokens () in
-  let rules = build_info toks in
-  print_endline "> term";
+let rules = build_info toks in
+print_endline "> term";
   StrSet.iter print_endline !terms;
   print_endline "> noterm";
   StrSet.iter print_endline !noterms;
@@ -261,4 +313,4 @@ let () =
     List.iter (fun e -> print_string (e ^ " ")) x.rhs;
     print_newline ()) rules
 
-*)
+    *)
