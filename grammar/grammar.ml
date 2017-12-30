@@ -333,10 +333,21 @@ let print_item rules symtab {rule_no=rule_no; pos=pos; fol=fol} =
       Printf.printf "%s " x)
     rhs
     ;
-  Printf.printf " , %s\n" fol
+  if pos >= List.length rhs then
+    Printf.printf "_";
+  Printf.printf ", <%s>\n" fol
 ;;
 
 (* is for ItemSet *)
+
+let print_is is rules symtab =
+  (*Printf.printf "ItemSet =====\n";*)
+  ItemSet.iter
+    (fun item ->
+      print_item rules symtab item)
+    is
+;;
+
 let closure is rules symtab =
   let change = ref true in
   let is' = ref is in
@@ -345,7 +356,7 @@ let closure is rules symtab =
     change := false;
     cnt := ItemSet.cardinal !is';
     ItemSet.iter
-      (function {rule_no=rule_no; pos=pos; fol=fol} as item ->
+      (function {rule_no=rule_no; pos=pos; fol=fol} (*as item*) ->
         (*print_item rules symtab item;*)
         let rule = List.nth rules rule_no in
         let rhs_cnt = List.length rule.rhs in
@@ -370,10 +381,79 @@ let closure is rules symtab =
     if ItemSet.cardinal !is' > !cnt then
       change := true
   done;
+  (*
   ItemSet.iter
     (fun item ->
       print_item rules symtab item)
-    !is'
+    !is';
+  *)
+  !is'
+;;
+
+module CCSet = Set.Make(ItemSet)
+
+let item_next_opt {rule_no=rule_no; pos=pos} rules =
+  let rule = List.nth rules rule_no in
+  if pos < List.length rule.rhs then
+    Some(List.nth rule.rhs pos)
+  else
+    None
+;;
+
+let goto is x rules symtab =
+  let is' = ref ItemSet.empty in
+  (
+  ItemSet.iter
+    (function {rule_no=rule_no; pos=pos; fol=fol} as item ->
+      let x' = item_next_opt item rules in
+      match x' with
+      | None -> ignore "bad"
+      | Some(x') ->
+          if x' = x then
+            (*let item' = {item with pos=(pos+1)} in*)
+            let item' = {rule_no=rule_no; pos=(pos+1); fol=fol} in
+            is' := ItemSet.add item' !is'
+    )
+    is;
+  closure !is' rules symtab
+  )
+;;
+
+let build_cc rules symtab =
+  let change = ref true in
+  let state_no = ref 0 in
+  let cc = ref CCSet.empty in
+  let is = ItemSet.(empty |> add {rule_no=0; pos=0; fol=0}) in
+  let cc0 = closure is rules symtab in (
+  Printf.printf "item set %d ====\n" !state_no;
+  print_is cc0 rules symtab;
+  cc := CCSet.add cc0 !cc;
+  while !change do
+    change := false;
+    CCSet.iter
+      (fun is ->
+        (* for each item set *)
+        ItemSet.iter
+          (fun item ->
+            let x = item_next_opt item rules in
+            match x with
+            | None -> ignore "no element"
+            | Some(x) ->
+                let is = goto is x rules symtab in
+                if not (CCSet.mem is !cc) then (
+                  incr state_no;
+                  Printf.printf "item set %d ====\n" !state_no;
+                  print_is is rules symtab;
+                  change := true;
+                  cc := CCSet.add is !cc;
+                )
+                (* assoc state_no with is *)
+          )
+          is
+      )
+      !cc
+  done
+  )
 ;;
 
 
@@ -382,7 +462,6 @@ let () =
   let (rules, symtab, tbl) = build_info toks in begin
   build_first rules symtab;
   build_follow rules symtab;
-  let is = ItemSet.(empty |> add {rule_no=0; pos=0; fol=0}) in
-  closure is rules symtab
+  build_cc rules symtab
   end
 
