@@ -254,17 +254,15 @@ let build_follow rules symtab =
             | [] ->
                 lp_rules rules
             | (x::xs) ->
-                let fol' = SymSet.union x.follow fol in begin
-                (if SymSet.cardinal fol' > SymSet.cardinal x.follow then begin
+                let fol' = SymSet.union x.follow fol in
+                if SymSet.cardinal fol' > SymSet.cardinal x.follow then (
                   change := true;
                   x.follow <- fol'
-                end);
-                (if x.empty then
+                );
+                if x.empty then
                   lp_rhs xs (SymSet.union fol' x.first)
                 else
                   lp_rhs xs x.first
-                )
-                end
           in let lhs = symtab.(rule.lhs) in
           let rhs = List.map (fun x -> symtab.(x)) (List.rev rule.rhs) in
           lp_rhs rhs lhs.follow
@@ -274,43 +272,117 @@ let build_follow rules symtab =
   end
 ;;
 
+type item_desc = {
+  rule_no: int;
+  mutable pos: int;
+  fol: int
+}
+
+module ItemSet = Set.Make(
+  struct
+    type t = item_desc
+    let compare i1 i2 =
+      match Pervasives.compare i1.rule_no i2.rule_no with
+      | 0 ->
+          (
+          match Pervasives.compare i1.pos i2.pos with
+          | 0 ->
+              Pervasives.compare i1.fol i2.fol
+          | x -> x
+          )
+      | x -> x
+  end
+)
+
+
+let first' xs =
+  let rec lp xs a =
+    match xs with
+    | [] -> a
+    | x::xs ->
+        let f = x.first in
+        let a' = SymSet.union f a in
+        if x.empty then
+          lp xs a'
+        else
+          a'
+  in lp xs SymSet.empty
+;;
+
+let nth_tl xs n fol =
+  let rec lp xs n =
+    match (n, xs) with
+    | (0, xs) -> List.append xs [fol]
+    | (n, x::xs) ->
+        lp xs (n-1)
+    | _ -> [] (* failwith "nth_tl oops" *)
+  in lp xs n
+;;
+
+
+let print_item rules symtab {rule_no=rule_no; pos=pos; fol=fol} =
+  let rule = List.nth rules rule_no in
+  let lhs = symtab.(rule.lhs).name in
+  let rhs = List.map (fun x -> symtab.(x).name) rule.rhs in
+  let fol = symtab.(fol).name in
+  Printf.printf "%s : " lhs;
+  List.iteri
+    (fun i x ->
+      if i = pos then
+        Printf.printf "_ ";
+      Printf.printf "%s " x)
+    rhs
+    ;
+  Printf.printf " , %s\n" fol
+;;
+
+(* is for ItemSet *)
+let closure is rules symtab =
+  let change = ref true in
+  let is' = ref is in
+  let cnt = ref 0 in
+  while !change do
+    change := false;
+    cnt := ItemSet.cardinal !is';
+    ItemSet.iter
+      (function {rule_no=rule_no; pos=pos; fol=fol} as item ->
+        (*print_item rules symtab item;*)
+        let rule = List.nth rules rule_no in
+        let rhs_cnt = List.length rule.rhs in
+        if pos < rhs_cnt then
+          let x = symtab.(List.nth rule.rhs pos) in (
+            if not x.term then
+              List.iteri
+                (fun n rule' ->
+                  if rule'.lhs = x.no then
+                    (* add this item to is *)
+                    let rst = nth_tl rule.rhs (pos+1) fol in
+                    let rst' = List.map (fun x -> symtab.(x)) rst in
+                    let fols = first' rst' in
+                    SymSet.iter
+                      (fun fol ->
+                        is' := ItemSet.add {rule_no=n; pos=0; fol=fol} !is'
+                      )
+                      fols
+                ) rules
+          )
+      ) !is';
+    if ItemSet.cardinal !is' > !cnt then
+      change := true
+  done;
+  ItemSet.iter
+    (fun item ->
+      print_item rules symtab item)
+    !is'
+;;
+
 
 let () =
   let toks = get_tokens () in
-  let (rules, symtab, tbl) = build_info toks in
+  let (rules, symtab, tbl) = build_info toks in begin
   build_first rules symtab;
-  build_follow rules symtab
+  build_follow rules symtab;
+  let is = ItemSet.(empty |> add {rule_no=0; pos=0; fol=0}) in
+  closure is rules symtab
+  end
 
-  (*
-  (* TODO *)
-
-let closure (s : ItemSet.t ref) =
-  let changing = ref true in
-while !changing do
-  Set.iter (fun item ->
-    let rule = List.nth rules item.rule_no in
-let rhs = rule.rhs in
-if item.pos < List.length rhs then
-  let x = List.nth rhs item.pos in
-if Set.mem x noterms then
-  List.iter (fun rule ->
-    if rule.lhs == x then
-      s := 
-              else
-                yyy
-  done
-
-let () =
-  let toks = get_tokens () in
-let rules = build_info toks in
-print_endline "> term";
-  StrSet.iter print_endline !terms;
-  print_endline "> noterm";
-  StrSet.iter print_endline !noterms;
-  print_endline "rules";
-  List.iter (fun x ->
-    print_string (x.lhs ^ " -> ");
-    List.iter (fun e -> print_string (e ^ " ")) x.rhs;
-    print_newline ()) rules
-
-    *)

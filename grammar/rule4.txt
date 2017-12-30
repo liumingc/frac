@@ -1,0 +1,14 @@
+%token (
+%token )
+
+%%
+
+goal : list ;
+
+list : list pair
+  | pair
+  ;
+
+pair : ( pair )
+  | ( )
+  ;
