@@ -11,7 +11,6 @@ let () =
    ("then", THEN);
    ("and", AND);
   ]
-
 }
 
 let ident = ['a'-'z' 'A'-'Z']+
@@ -41,6 +40,12 @@ rule token = parse
   {
     EQ
   }
+| ";;"
+  {
+    SEMICOLON
+  }
+| '+' { PLUS }
+| '-' { MINUS }
 | _
   {
     token lexbuf

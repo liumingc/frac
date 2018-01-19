@@ -1,4 +1,4 @@
-a.out:
+a.out: lex.mll parse.mly helper.ml main.ml
 	ocamlyacc parse.mly
 	ocamllex lex.mll
 	ocamlc -c helper.ml

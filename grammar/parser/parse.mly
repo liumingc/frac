@@ -1,5 +1,6 @@
 %{
 open Helper
+open Printf
 %}
 
 %token <string> NAME
@@ -10,6 +11,7 @@ open Helper
 %token PLUS MINUS MULT DIV MOD
 %token EOF
 %token AND
+%token SEMICOLON
 
 %left AND
 %right EQ
@@ -17,14 +19,22 @@ open Helper
 %left MULT DIV MOD
 /* %token ASSIGN */
 
-%type <Helper.exp> expr
-%start expr
+%type <Helper.exp list> prog
+%start prog
 
 %%
+
+prog:
+  expr EOF
+  {
+    [$1]
+  }
+  ;
 
 expr :
   LET bindings IN expr
   {
+    printf "Let...\n";
     Let($2, $4)
   }
 | IF expr THEN expr ELSE expr
@@ -33,7 +43,18 @@ expr :
   }
 | expr binop expr
   {
+    printf "Binop...\n";
     Binop($1, $2, $3)
+  }
+| NUM
+  {
+    printf "const -> %d\n" $1;
+    Const($1)
+  }
+| NAME
+  {
+    printf "var -> %s\n" $1;
+    Var($1)
   }
 ;
 
@@ -47,6 +68,7 @@ binop :
 bindings :
   NAME EQ expr
   {
+    printf "Binding name=%s\n" $1;
     [Bind($1, $3)]
   }
 | bindings AND bindings
