@@ -6,7 +6,8 @@ a.out: lex.mll parse.mly helper.ml main.ml
 	ocamlc -c parse.ml
 	ocamlc -c lex.ml
 	ocamlc -c main.ml
-	ocamlc -o $@ lex.cmo parse.cmo main.cmo helper.cmo
+	#ocamlc -o $@ lex.cmo parse.cmo helper.cmo main.cmo
+	ocamlc -o $@ lex.cmo parse.cmo helper.cmo main.cmo
 
 clean:
 	rm -f *.cmo *.cmi
