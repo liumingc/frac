@@ -1,7 +1,8 @@
 (defpackage :num
   (:use :cl)
   (:export num->int int->num num+ num-
-           num-mul
+           num-mul num-div num-mod num-div/mod
+           normalize
            num< num=))
 
 (in-package :num)
@@ -47,7 +48,19 @@
                        (cons q (f1 c (cdr x1))))))))
     (f x1 x2 0)))
 
-;; TODO: test num< and num=
+(defun num= (x1 x2)
+  (let ((n1 (length x1))
+        (n2 (length x2)))
+    (if (= n1 n2)
+        (labels ((f (x1 x2)
+                   (cond ((null x1) t)
+                         ((= (car x1) (car x2))
+                          (f (cdr x1) (cdr x2)))
+                         (t nil))))
+          (f x1 x2))
+        nil)))
+
+
 (defun num< (x1 x2)
   (let ((n1 (length x1))
         (n2 (length x2)))
@@ -62,18 +75,6 @@
                                nil))))
                (f x1 x2))))))
 
-
-(defun num= (x1 x2)
-  (let ((n1 (length x1))
-        (n2 (length x2)))
-    (if (= n1 n2)
-        (labels ((f (x1 x2)
-                   (cond ((null x1) t)
-                         ((= (car x1) (car x2))
-                          (f (cdr x1) (cdr x2)))
-                         (t nil))))
-          (f x1 x2))
-        nil)))
 
 (defun num- (x1 x2)
   (if (num< x1 x2)
@@ -111,7 +112,7 @@
                (cons r (%multi (cdr x) i c)))))))
 
 ;; to trim the preceding 0's.
-(defun %compress (x)
+(defun normalize (x)
                                         ;(int->num (num->int x))
   (labels ((f (x)
              (cond ((null (cdr x))
@@ -161,11 +162,11 @@
                (let* ((res (try-div q x2 0))
                       (q1 (cdr res))
                       (r1 (car res)))
-                 (cond ((null r) (values (%compress (cons q1 divres)) r1))
-                       (t (f (%compress (cons (car r) r1))
+                 (cond ((null r) (values (normalize (cons q1 divres)) r1))
+                       (t (f (normalize (cons (car r) r1))
                              (cdr r)
-                             (%compress (cons q1 divres))))))))
-      (format t "DIV/MOD ~d / ~d~%" (num->int x1) (num->int x2))
+                             (normalize (cons q1 divres))))))))
+      ;(format t "DIV/MOD ~d / ~d~%" (num->int x1) (num->int x2))
       (f q r nil))))
 
 (defun %div/mod (x1 x2)
@@ -177,10 +178,20 @@
         (t (%dvmd x1 x2))))
 
 
-(defun num-div ())
+(defun num-div/mod (x1 x2)
+  (%div/mod x1 x2))
 
-(defun num-mod ())
+(defun num-div (x1 x2)
+  (multiple-value-bind (q r)
+      (num-div/mod x1 x2)
+    (declare (ignore r))
+    q))
 
+(defun num-mod (x1 x2)
+  (multiple-value-bind (q r)
+      (num-div/mod x1 x2)
+    (declare (ignore q))
+    r))
 
 ;; num::foo
 ;; test num+, num<, num=
@@ -235,6 +246,6 @@
                      (assert (and (eql (num->int q) iq)
                                   (eql (num->int r) ir)))
                      #|(format t "i1=~d, i2=~d~%q1=~d~%q2=~d~%r1=~d~%r2=~d~%"
-                             i1 i2 iq (num->int q) ir (num->int r))|#
+                     i1 i2 iq (num->int q) ir (num->int r))|#
                      )))
                ))))
